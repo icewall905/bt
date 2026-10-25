@@ -101,9 +101,10 @@ def judge_one(rt: Runtime, cand: Candidate) -> Optional[str]:
             return None
         lessons = data.lessons_for(s, cat, v.channel_id)
         trust = data.trust_for(s, cat.profile_id, v.channel_id) if v.channel_id else None
+        queue = data.queue_titles(s, cat.id, cat.profile_id)
     msgs = prompts.judge_messages(
         cat, v, lessons, trust, min(JUDGE_TRANSCRIPT_MAX, int(st["throttle"].get("transcript_max_chars") or 40000)),
-        min(JUDGE_COMMENTS_MAX, int(st["throttle"].get("max_comments") or 40)))
+        min(JUDGE_COMMENTS_MAX, int(st["throttle"].get("max_comments") or 40)), queue)
     rt.state("judging", f"Judging: {v.title}", cat, video_id=v.id, title=v.title)
     rt.event("judge", f"🤔 Judging: {v.title}", "info", cat, video_id=v.id,
              payload={"lessons": len(lessons), "trust": trust, "comments": len(v.comments or []),

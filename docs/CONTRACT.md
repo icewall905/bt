@@ -10,6 +10,10 @@ Deploy: `root@10.0.10.73:/root/compose/bt`, port **6645**, public URL `https://b
   API call (stored in localStorage `bt.profile`). Backend falls back to first profile.
 - **Pause AI** button always visible (status pill in top bar + Agent page): `POST /api/agent/pause`
   / `/api/agent/resume` (`/api/agent/reset-backoff` separately clears a bot-check backoff). When paused the worker makes **no YouTube and no LLM calls**.
+- **Queue-aware curation (diversity)**: the planner and the judge both receive the current category queue
+  (`queue_titles`: accepted, not dismissed, not finished-watching, newest judged first, ≤15 titles) with a VARIETY
+  instruction — plan searches for underrepresented topics from the brief, and judge borderline videos stricter when the
+  queue already holds several very similar ones / kinder when they fill a gap. Quality always wins over variety.
 - Build material lives in this repo; commit when ready (no AI attribution trailers in commits).
 
 ## Layout / ownership

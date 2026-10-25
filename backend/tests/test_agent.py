@@ -18,7 +18,7 @@ from bt.agent.runtime import Paused, Runtime, parse_ts  # noqa: E402
 from bt.db import (engine, get_agent_state, init_db, log_yt_request, save_setting, session,  # noqa: E402
                    update_agent_control)
 from bt.models import (AgentEvent, Candidate, Category, Feedback, Lesson, Profile, ProfileChannel, Video,  # noqa: E402
-                       YtRequest, now)
+                       WatchHistory, YtRequest, now)
 
 
 # ------------------------------------------------------------------ fakes
@@ -461,6 +461,24 @@ def test_lessons_reach_judge_prompt():
         msgs = prompts.judge_messages(cat, v, data.lessons_for(s, cat, "UC"), 0.4, 1000)
     u = msgs[-1]["content"]
     assert "Never pick prank videos" in u and "trust +0.4" in u and "hello" in u and "Kid-safe category: YES" in u
+
+
+def test_queue_context_reaches_judge_and_planner():
+    cat = make_category()
+    with session() as s:
+        for vid, title in [("v" * 11, "Space Vid A"), ("w" * 11, "Watched Vid B"), ("x" * 11, "Dismissed Vid C")]:
+            s.add(Video(id=vid, title=title, channel_id="UC"))
+        for vid, extra in [("v" * 11, {}), ("w" * 11, {}), ("x" * 11, {"dismissed": True})]:
+            s.add(Candidate(category_id=cat.id, video_id=vid, status="accepted", judged_at=now(), **extra))
+        s.add(WatchHistory(profile_id=cat.profile_id, video_id="w" * 11, finished=True))
+        s.commit()
+        q = data.queue_titles(s, cat.id, cat.profile_id)
+    assert q == ["Space Vid A"]  # dismissed and finished-watched excluded
+    v = Video(id="y" * 11, title="T", channel_id="UC", transcript="hello")
+    u = prompts.judge_messages(cat, v, [], None, 1000, queue=q)[-1]["content"]
+    assert "Space Vid A" in u and "Watched Vid B" not in u
+    p = prompts.planner_messages(cat, [], [], [], [], [], queue=q)[-1]["content"]
+    assert "Space Vid A" in p and "CURRENT QUEUE" in p and "VARIETY" in prompts.PLANNER_SYSTEM
 
 
 # ------------------------------------------------------------------ JSON parsing / llm client

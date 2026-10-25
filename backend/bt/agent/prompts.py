@@ -46,6 +46,10 @@ How to judge:
   A video that violates a lesson must score below the threshold.
 - CHANNEL TRUST (-1..1) reflects the family's past ratings of this channel: lean on it, but the video's own
   content decides.
+- VARIETY: the CURRENT QUEUE lists what is already waiting in this category. When the brief covers several
+  kinds of videos, keep the queue balanced: if it already holds several videos very similar to this one
+  (same topic, format or channel), that is a reason to be stricter; if it fills a gap, let that count in
+  the video's favour. Never accept a weak video just for variety, and never punish a great one — quality first.
 - Score 0-100 for this category: 90+ outstanding, 75-89 clearly good, 60-74 okay, below 50 poor or off-topic.
   Be strict: an average YouTube video should score around 50. Off-topic for the category = below 40.
 - summary: 1-2 plain sentences telling the family why this is worth watching (or why not). No hype.
@@ -86,8 +90,16 @@ def lessons_block(lessons: list) -> str:
     return "\n".join(out)
 
 
+def queue_block(queue: list[str]) -> str:
+    if not queue:
+        return "CURRENT QUEUE (accepted, not yet watched): (empty — the playlist is empty)"
+    out = [f"CURRENT QUEUE (accepted, not yet watched) — {len(queue)} videos, most recent first:"]
+    out += [f"- {t}" for t in queue]
+    return "\n".join(out)
+
+
 def judge_messages(cat, video, lessons: list, trust: Optional[float], transcript_chars: int,
-                   max_comments: int = 40) -> list[dict]:
+                   max_comments: int = 40, queue: Optional[list[str]] = None) -> list[dict]:
     chapters = "; ".join(f"{_fmt_dur(c.get('start_time'))} {c.get('title', '')}" for c in (video.chapters or [])[:30])
     comments = []
     for c in (video.comments or [])[:max_comments]:
@@ -105,6 +117,7 @@ def judge_messages(cat, video, lessons: list, trust: Optional[float], transcript
     user = "\n\n".join([
         category_block(cat) + f"\nAccept threshold: {cat.threshold}",
         lessons_block(lessons),
+        queue_block(queue or []),
         "VIDEO\n" + "\n".join(meta),
         "DESCRIPTION\n" + _clip(video.description, 1500),
         "CHAPTERS\n" + (chapters or "(none)"),
@@ -133,6 +146,9 @@ PLANNER_SYSTEM = FAMILY + """
 You are the PLANNER. Propose YouTube searches that will surface excellent NEW videos for one category.
 - Give 4-6 specific search queries (2-6 words each), the way a person types them into YouTube. Vary them:
   different sub-topics, formats and well-known quality creators. Do not repeat queries already tried.
+- VARIETY: look at the CURRENT QUEUE (what is already waiting in this category). If one kind of video
+  dominates it, plan searches for the other kinds the brief asks for; if the brief lists several topics,
+  spread the queries across them so the queue does not fill with only one type.
 - Favour queries that find high-effort, genuinely fun or educational content; avoid queries that attract
   clickbait, prank, reaction, compilation or "satisfying" spam.
 - Respect the lessons and the avoid-list strictly; learn from the liked and rejected examples.
@@ -142,8 +158,8 @@ Output ONLY the JSON object."""
 
 
 def planner_messages(cat, lessons: list, accepted: list[str], rejected: list[str], disliked: list[str],
-                     tried: list[str]) -> list[dict]:
-    parts = [category_block(cat), lessons_block(lessons)]
+                     tried: list[str], queue: Optional[list[str]] = None) -> list[dict]:
+    parts = [category_block(cat), lessons_block(lessons), queue_block(queue or [])]
     if cat.seed_queries:
         parts.append("Seed queries from the family: " + "; ".join(cat.seed_queries))
     if cat.seed_channels:
