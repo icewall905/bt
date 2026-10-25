@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { freshPage } from './helpers';
+import { expectFocus, freshPage, moveUntil } from './helpers';
 
 // "Seen it" on a category card: the video disappears from the feed and is marked watched.
 const DATA = process.env.BT_E2E_DATA;
@@ -52,8 +52,15 @@ test('Seen it removes the card and keeps the rest', async ({ page, request }) =>
 	await expect(page.getByRole('heading', { name: 'Seen it test' })).toBeVisible();
 	await expect(page.getByRole('link', { name: 'Video the family has seen' })).toBeVisible();
 
-	await page.locator('.cand', { hasText: 'Video the family has seen' })
-		.getByRole('button', { name: 'Seen it' }).click();
+	// Card actions stay hidden until the card is hovered or focused (no accidental clicks).
+	// Whichever card holds keyboard focus shows its actions; every other card keeps them hidden.
+	const idle = page.locator('.cand:not(:has(:focus)) .actions').first();
+	await expect(idle).toHaveCSS('opacity', '0');
+	const card = page.locator('.cand', { hasText: 'Video the family has seen' });
+	await card.hover();
+	const seenBtn = card.getByRole('button', { name: 'Seen it' });
+	await expect(seenBtn).toHaveCSS('opacity', '1'); // hovering the card reveals them
+	await seenBtn.click();
 
 	await expect(page.getByRole('link', { name: 'Video the family has seen' })).toHaveCount(0);
 	await expect(page.getByRole('link', { name: 'Video still fresh' })).toBeVisible();
@@ -72,8 +79,9 @@ test("Don't like channel clears its cards and blocks it", async ({ page, request
 	await freshPage(page, `/category/${id}`);
 	await expect(page.getByRole('link', { name: 'Video from a disliked channel' })).toBeVisible();
 
-	await page.locator('.cand', { hasText: 'Video from a disliked channel' })
-		.getByRole('button', { name: "Don't like channel" }).click();
+	const card = page.locator('.cand', { hasText: 'Video from a disliked channel' });
+	await card.hover(); // the action strip is hover-revealed
+	await card.getByRole('button', { name: "Don't like channel" }).click();
 
 	await expect(page.getByRole('link', { name: 'Video from a disliked channel' })).toHaveCount(0);
 	await expect(page.getByText('No more from Disliked. The AI will skip that channel.')).toBeVisible();
@@ -84,4 +92,19 @@ test("Don't like channel clears its cards and blocks it", async ({ page, request
 	expect(feed.some((c: { video: { id: string } }) => c.video.id === 'badch000001')).toBe(false);
 	const chans = await (await request.get('/api/channels')).json();
 	expect(chans.find((c: { id: string }) => c.id === 'UCbad')?.blocked).toBe(true);
+});
+
+test('remote reaches the action strip: Down from a card dives in', async ({ page, request }) => {
+	const id = await getCatId(request);
+	await freshPage(page, `/category/${id}`);
+	// Walk Down from wherever focus starts until a video card is focused (its strip is revealed by focus-within)
+	await moveUntil(page, 'ArrowDown', /Video /);
+	// Down again dives into that card's action buttons
+	await page.keyboard.press('ArrowDown');
+	await expectFocus(page, /Why picked|Details|Seen it|Don't like channel|Save offline/);
+	// Activating one works (opens the candidate drawer)
+	await page.keyboard.press('Enter');
+	await expect(page.getByRole('dialog')).toBeVisible();
+	await page.keyboard.press('Backspace');
+	await expect(page.getByRole('dialog')).toHaveCount(0);
 });

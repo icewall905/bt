@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { focusable } from '$lib/nav';
+	import { focusable, type NavKey } from '$lib/nav';
 	import { api } from '$lib/api';
 	import { fmtDuration, fmtCount, timeAgo } from '$lib/util';
 	import type { Video } from '$lib/types';
@@ -25,38 +25,56 @@
 	const v = $derived(video as Partial<Video> & { id: string });
 	const link = $derived(href ?? `/watch/${v.id}`);
 	let broken = $state(false);
+	let actionsEl = $state<HTMLDivElement | null>(null);
+
+	/** The action buttons sit inside the stretched link's rect, so the engine's spatial move
+	 *  cannot reach them; Down from the card dives into the strip explicitly. */
+	function dive(key: NavKey): boolean {
+		if (key === 'down' && actionsEl) {
+			const b = actionsEl.querySelector<HTMLElement>('button, a');
+			if (b) {
+				b.focus({ preventScroll: true });
+				b.scrollIntoView({ block: 'nearest' });
+				return true;
+			}
+		}
+		return false;
+	}
 </script>
 
 <div class="card {size}" style:--cat={color ?? 'var(--ai)'}>
+	<!-- Stretched link: the whole card is one click target; hover/focus effects key off it. -->
 	<a
 		class="hit"
 		href={link}
 		aria-label={v.title ?? v.id}
-		use:focusable={{ group, id: id ?? `v-${group ?? ''}-${v.id}`, autofocus, onSelect: onSelect ? (e) => (e?.preventDefault(), onSelect()) : undefined }}
-	>
-		<div class="thumb">
-			{#if !broken}
-				<img src={api.thumb(v.id)} alt="" loading="lazy" decoding="async" onerror={() => (broken = true)} />
-			{:else}
-				<div class="noimg">▶</div>
-			{/if}
-			{#if score != null}<span class="score ai">✦ {score}</span>{/if}
-			{#if badge}{@render badge()}{/if}
-			{#if v.offline}<span class="offline" title="Saved offline">⤓ Offline</span>{/if}
-			{#if v.duration_s}<span class="dur">{fmtDuration(v.duration_s)}</span>{/if}
-			{#if progress > 0.01}<span class="prog"><span style:width="{Math.min(100, progress * 100)}%"></span></span>{/if}
-			{#if summary}<div class="sum"><p>{summary}</p></div>{/if}
-		</div>
-		<div class="meta">
-			<h3 class="title">{v.title || 'Untitled video'}</h3>
-			<p class="sub">
-				<span class="ch">{v.channel_name ?? ''}</span>
-				{#if v.view_count}<span class="dot">{fmtCount(v.view_count)} views</span>{/if}
-				{#if v.published_at && size === 'grid'}<span class="dot">{timeAgo(v.published_at)}</span>{/if}
-			</p>
-		</div>
-	</a>
-	{#if actions}<div class="actions">{@render actions()}</div>{/if}
+		use:focusable={{ group, id: id ?? `v-${group ?? ''}-${v.id}`, autofocus, onKey: dive, onSelect: onSelect ? (e) => (e?.preventDefault(), onSelect()) : undefined }}
+	></a>
+	<div class="thumb">
+		{#if !broken}
+			<img src={api.thumb(v.id)} alt="" loading="lazy" decoding="async" onerror={() => (broken = true)} />
+		{:else}
+			<div class="noimg">▶</div>
+		{/if}
+		{#if score != null}<span class="score ai">✦ {score}</span>{/if}
+		{#if badge}{@render badge()}{/if}
+		{#if v.offline}<span class="offline" title="Saved offline">⤓ Offline</span>{/if}
+		{#if v.duration_s}<span class="dur">{fmtDuration(v.duration_s)}</span>{/if}
+		{#if progress > 0.01}<span class="prog"><span style:width="{Math.min(100, progress * 100)}%"></span></span>{/if}
+		{#if summary}<div class="sum"><p>{summary}</p></div>{/if}
+	</div>
+	{#if actions}
+		<!-- Small hover actions under the thumbnail; invisible and unclickable until the card is hovered/focused. -->
+		<div class="actions" bind:this={actionsEl}>{@render actions()}</div>
+	{/if}
+	<div class="meta">
+		<h3 class="title">{v.title || 'Untitled video'}</h3>
+		<p class="sub">
+			<span class="ch">{v.channel_name ?? ''}</span>
+			{#if v.view_count}<span class="dot">{fmtCount(v.view_count)} views</span>{/if}
+			{#if v.published_at && size === 'grid'}<span class="dot">{timeAgo(v.published_at)}</span>{/if}
+		</p>
+	</div>
 </div>
 
 <style>
@@ -72,15 +90,26 @@
 		width: var(--card-w);
 		flex: none;
 	}
+	/* Stretched link over the whole card; the visual layers pass clicks through to it. */
 	.hit {
-		--focus-scale: 1.06;
-		display: grid;
-		gap: 0.7rem;
+		position: absolute;
+		inset: 0;
+		z-index: 0;
 		border-radius: var(--r-md);
-		padding: 0;
 	}
-	:global(html[data-modality='keys']) .hit:focus {
+	/* app.css keys-modality .focusable:focus sets position:relative; keep the stretched overlay. */
+	:global(html[data-modality='keys']) .card .hit:focus {
 		box-shadow: none;
+		position: absolute;
+		z-index: 5;
+	}
+	.thumb,
+	.meta {
+		order: 0;
+		pointer-events: none;
+	}
+	.meta {
+		order: 2;
 	}
 	.thumb {
 		position: relative;
@@ -91,13 +120,13 @@
 		box-shadow: 0 10px 30px -14px rgba(0, 0, 0, 0.8);
 		transition: box-shadow 0.22s var(--ease);
 	}
-	:global(html[data-modality='keys']) .hit:focus .thumb {
+	:global(html[data-modality='keys']) .hit:focus + .thumb {
 		box-shadow:
 			0 0 0 3px var(--accent),
 			0 0 36px 6px var(--accent-glow),
 			0 22px 44px -10px rgba(0, 0, 0, 0.85);
 	}
-	.hit:hover .thumb img {
+	.hit:hover + .thumb img {
 		transform: scale(1.03);
 	}
 	.thumb img {
@@ -185,13 +214,13 @@
 		color: var(--accent);
 		margin-bottom: 0.2rem;
 	}
-	:global(html[data-modality='keys']) .hit:focus .sum,
-	.hit:hover .sum {
+	:global(html[data-modality='keys']) .hit:focus + .thumb .sum,
+	.hit:hover + .thumb .sum {
 		opacity: 1;
 		transform: none;
 	}
-	:global(html[data-modality='keys']) .hit:focus .dur,
-	.hit:hover .dur {
+	:global(html[data-modality='keys']) .hit:focus + .thumb .dur,
+	.hit:hover + .thumb .dur {
 		opacity: 0;
 	}
 	.meta {
@@ -228,8 +257,38 @@
 		color: var(--faint);
 	}
 	.actions {
+		order: 1; /* visually right under the thumbnail */
+		position: relative;
+		z-index: 1; /* above the stretched link, so the buttons can be clicked */
 		display: flex;
-		gap: 0.4rem;
+		gap: 0.35rem;
 		flex-wrap: wrap;
+		opacity: 0;
+		pointer-events: none; /* the strip itself passes clicks through to the card */
+		transition: opacity 0.15s var(--ease);
+	}
+	.card:hover .actions,
+	.card:focus-within .actions {
+		opacity: 1;
+	}
+	.actions :global(.btn) {
+		min-height: 1.9rem;
+		padding: 0.1rem 0.7rem;
+		font-size: 0.78rem;
+		border-radius: var(--r-sm);
+	}
+	/* Buttons only accept the pointer once revealed — no accidental clicks on invisible controls. */
+	.card:hover .actions :global(.btn),
+	.card:focus-within .actions :global(.btn) {
+		pointer-events: auto;
+	}
+	/* Touch has no hover to reveal the strip: show it there, small, always on. */
+	@media (hover: none) {
+		.actions {
+			opacity: 1;
+		}
+		.actions :global(.btn) {
+			pointer-events: auto;
+		}
 	}
 </style>
