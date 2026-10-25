@@ -552,3 +552,53 @@ def comments(video_id: str, max_comments: int = 40, origin: str = "worker") -> l
         if len(out) >= n:
             break
     return out
+
+
+# ---------------------------------------------------------------- downloads (local cache)
+
+class DownloadAborted(yt_dlp.utils.DownloadCancelled):
+    """Raise from a progress hook to stop a download; partial `.part` files stay resumable."""
+
+
+def download_format(max_height: int) -> str:
+    h = int(max_height or 1080)
+    return (f"bv*[vcodec^=avc1][height<={h}]+ba[acodec^=mp4a]"
+            f"/b[ext=mp4][vcodec^=avc1][height<={h}]/b[ext=mp4][height<={h}]")
+
+
+def download_opts(workdir: str, max_height: int = 1080, rate_limit: int = 0, hooks: list | None = None) -> dict:
+    """yt-dlp options for one merged H.264/AAC mp4 (faststart) in `workdir` (same PO token/cookies as _opts)."""
+    o = _opts(
+        skip_download=False, format=download_format(max_height), merge_output_format="mp4",
+        outtmpl=f"{workdir}/%(id)s.%(ext)s", continuedl=True, nopart=False, overwrites=False,
+        retries=3, fragment_retries=3, socket_timeout=30, noplaylist=True,
+        postprocessor_args={"merger+ffmpeg_o": ["-movflags", "+faststart"]},
+        progress_hooks=list(hooks or []),
+    )
+    if rate_limit and rate_limit > 0:
+        o["ratelimit"] = int(rate_limit)
+    return o
+
+
+def download(video_id: str, workdir: str, max_height: int = 1080, rate_limit: int = 0,
+             hook=None, origin: str = "worker") -> dict:
+    """Blocking. Download+merge into `workdir/<id>.mp4`. Returns {path, height, vcodec, acodec, title, info}.
+    Raises DownloadAborted (hook asked to stop), YtBlocked/YtUnavailable/YtError."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id or ""):
+        raise YtUnavailable(f"bad video id {video_id!r}")
+    t = time.monotonic()
+    try:
+        with yt_dlp.YoutubeDL(download_opts(workdir, max_height, rate_limit, [hook] if hook else [])) as ydl:
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=True)
+    except yt_dlp.utils.DownloadCancelled as e:
+        log_yt_request("download", origin, True, f"download {video_id}: aborted")
+        raise DownloadAborted(str(e)) from e
+    except Exception as e:
+        err = classify(e)
+        log_yt_request("download", origin, False, f"download {video_id}: {type(err).__name__}: {str(e)[:300]}")
+        raise err from e
+    req = (info or {}).get("requested_downloads") or [{}]
+    path = req[0].get("filepath") or f"{workdir}/{video_id}.mp4"
+    log_yt_request("download", origin, True, f"download {video_id} ({time.monotonic() - t:.0f}s)")
+    return {"path": path, "height": int(info.get("height") or 0), "vcodec": info.get("vcodec") or "",
+            "acodec": info.get("acodec") or "", "title": info.get("title") or "", "info": info}

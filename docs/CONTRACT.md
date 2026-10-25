@@ -118,3 +118,34 @@ Loop per docs/PLAN.md "AI curator": plan → discover → enrich → judge → l
 ## Frontend (C)
 See ticket C brief (in agent prompt / `frontend/README.md` once written). API above + `api/core.py` + `api/agent.py`.
 SSE: `GET /api/agent/stream` events `state` and `agent`.
+
+## Ticket D — local video cache (yt-dlp downloads)
+User request: download the videos the AI selects and play them locally.
+- Storage: host `/mnt/local/localstorage/bt` (NFS, ~2.7 TB free) mounted at `/media` in bt-api + bt-downloader
+  (`BT_MEDIA_DIR=/media`). Layout `/media/<id[:2]>/<id>.mp4` (+ `.info.json` optional). Write to `*.part` then rename.
+- Policy: **all accepted (non-dismissed) candidates** are auto-downloaded, highest score / newest first, round-robin across
+  categories, until `cache.max_gb` (default 500). Manual "Save offline" on any video (`pinned`). Eviction when over cap: LRU among
+  non-pinned, preferring videos finished by every profile that watched them, then dismissed/rejected ones, then oldest last_played.
+  Dismiss/dislike → eligible for eviction. Deleting a category doesn't delete files immediately; eviction handles it.
+- Format: single merged MP4, H.264 (avc1) + AAC, ≤ `cache.max_height` (default 1080), via yt-dlp
+  `bv*[vcodec^=avc1][height<=H]+ba[acodec^=mp4a]/b[ext=mp4]` with ffmpeg merge, `--merge-output-format mp4`, faststart
+  (`-movflags +faststart` postprocessor args). ffmpeg added to the image. PO token + cookies same as ytdl.py.
+- Process: separate service `bt-downloader` (`python -m bt.downloader`), same image. One download at a time, `cache.rate_limit`
+  bytes/s (default 8 MB/s), jittered pause between downloads (`cache.min_gap_s` default 30). Respects agent control
+  `paused` (stop/abort current download, resume later — yt-dlp `continuedl`), `agent.enabled`, the worker's YouTube backoff
+  (`agent_state.backoff_until`) and `cache.enabled`. Each download logged as YtRequest kind "download" origin "worker"
+  (counts toward hourly cap; skip when cap reached). Emits AgentEvents kind "download" (📥 Downloading…, ✅ Saved offline (1080p,
+  512 MB), 🗑️ Evicted …) and writes its own state in Setting `downloader_state` {state, video_id, title, progress 0..1,
+  speed, eta, used_bytes, max_bytes, queue}.
+- Model `Download` (table): video_id pk, status queued|downloading|done|error|evicted, path, size_bytes, height, vcodec,
+  progress, error, attempts, pinned, requested_by_profile, created_at, finished_at, last_played_at.
+- Settings key `cache`: {enabled: true, max_gb: 500, max_height: 1080, rate_limit: 8000000, min_gap_s: 30, auto: "accepted"}.
+- API (api/downloads.py): `GET /api/downloads` (list + totals + downloader_state), `POST /api/downloads` {video_id} (pin/queue),
+  `DELETE /api/downloads/{video_id}` (delete file, mark evicted, unpin), `GET /api/video/{id}/file` (FileResponse with Range,
+  only when done; update last_played_at). `GET /api/video/{id}` gains `download: {status, progress, height, size_bytes, pinned}`.
+  `video_out` gains `offline: bool`. Agent SSE `state` event gains `downloader` (downloader_state).
+- Player: if `download.status == done` play `/api/video/{id}/file` directly (no Shaka manifest; quality menu shows "Offline
+  1080p"); on error fall back to streaming. Captions/SponsorBlock unchanged.
+- UI: "Save offline"/"Remove download" in info panel + card menus; offline badge on cards; Settings → "Storage" tab
+  (enable, cap slider, max height, rate limit, usage bar, list of downloads with progress/delete, "Clear all"); Agent page shows
+  downloader status/progress and queue; top-bar pill shows a small download progress ring when downloading.

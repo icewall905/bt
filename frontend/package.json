@@ -1,0 +1,31 @@
+{
+  "name": "bettertube-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "icons": "node scripts/icons.mjs",
+    "test:e2e": "scripts/e2e.sh"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "5.3.0",
+    "shaka-player": "5.3.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@sveltejs/adapter-static": "3.0.10",
+    "@sveltejs/kit": "2.70.3",
+    "@sveltejs/vite-plugin-svelte": "6.2.4",
+    "@types/node": "22.20.5",
+    "sharp": "0.35.5",
+    "svelte": "5.57.2",
+    "svelte-check": "4.7.7",
+    "tslib": "2.8.1",
+    "typescript": "5.9.3",
+    "vite": "7.3.7"
+  }
+}

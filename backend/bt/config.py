@@ -7,6 +7,7 @@ DATA_DIR = Path(os.environ.get("BT_DATA_DIR", "./data")).resolve()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "bt.sqlite3"
 COOKIES_PATH = DATA_DIR / "cookies.txt"
+MEDIA_DIR = Path(os.environ.get("BT_MEDIA_DIR", DATA_DIR / "media")).resolve()
 STATIC_DIR = Path(os.environ.get("BT_STATIC_DIR", Path(__file__).parent / "static"))
 
 PASSWORD = os.environ.get("BT_PASSWORD", "")
@@ -68,4 +69,12 @@ DEFAULT_SETTINGS: dict = {
         "min_segment_s": 1.0,
     },
     "extras": {"dearrow": False, "ryd": True, "hide_shorts": True},
+    "cache": {
+        "enabled": True,
+        "auto": "accepted",  # accepted | manual
+        "max_gb": 500,
+        "max_height": 1080,
+        "rate_limit": 8_000_000,  # bytes/s
+        "min_gap_s": 30,
+    },
 }

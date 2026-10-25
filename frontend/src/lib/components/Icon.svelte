@@ -1,0 +1,49 @@
+<script lang="ts">
+	let { name, size = '1.25em' }: { name: string; size?: string } = $props();
+	const P: Record<string, string> = {
+		home: 'M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z',
+		search: 'M10.5 4a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13zM15.5 15.5 20 20',
+		subs: 'M4 6h16v11H4zM8 21h8M10 9.5v4l3.5-2z',
+		agent: 'M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4zM18.5 16l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z',
+		settings: 'M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zM19.4 13.5l1.6 1.2-2 3.4-1.9-.7a7 7 0 0 1-1.8 1l-.3 2h-4l-.3-2a7 7 0 0 1-1.8-1l-1.9.7-2-3.4 1.6-1.2a7 7 0 0 1 0-3L3 9.3l2-3.4 1.9.7a7 7 0 0 1 1.8-1l.3-2h4l.3 2a7 7 0 0 1 1.8 1l1.9-.7 2 3.4-1.6 1.2a7 7 0 0 1 0 3z',
+		pause: 'M7 5h3.5v14H7zM13.5 5H17v14h-3.5z',
+		play: 'M7 4.5v15l12.5-7.5z',
+		back: 'M15 5l-7 7 7 7',
+		next: 'M5 5l9 7-9 7zM16 5h3v14h-3z',
+		prev: 'M19 5l-9 7 9 7zM5 5h3v14H5z',
+		cc: 'M3 6h18v12H3zM10 10.5a2 2 0 1 0 0 3M17 10.5a2 2 0 1 0 0 3',
+		speed: 'M12 20a8 8 0 1 1 8-8M12 12l4-4',
+		quality: 'M4 7h10M18 7h2M4 17h2M10 17h10M14 5v4M6 15v4',
+		info: 'M12 10.5V17M12 7v.01M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18z',
+		plus: 'M12 5v14M5 12h14',
+		refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7',
+		check: 'M5 12.5l4.5 4.5L19 7.5',
+		x: 'M6 6l12 12M18 6 6 18',
+		edit: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
+		trash: 'M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13',
+		up: 'M6 15l6-6 6 6',
+		down: 'M6 9l6 6 6-6',
+		bell: 'M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15zM10 20.5h4',
+		block: 'M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zM5.6 5.6l12.8 12.8',
+		rewind: 'M11 6 4 12l7 6zM20 6l-7 6 7 6z',
+		forward: 'M13 6l7 6-7 6zM4 6l7 6-7 6z'
+	};
+	const filled = new Set(['play', 'pause', 'next', 'prev', 'agent', 'rewind', 'forward']);
+</script>
+
+<svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true" class="icon">
+	<path
+		d={P[name] ?? ''}
+		fill={filled.has(name) ? 'currentColor' : 'none'}
+		stroke={filled.has(name) ? 'none' : 'currentColor'}
+		stroke-width="2"
+		stroke-linecap="round"
+		stroke-linejoin="round"
+	/>
+</svg>
+
+<style>
+	.icon {
+		flex: none;
+	}
+</style>

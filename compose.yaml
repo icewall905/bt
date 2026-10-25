@@ -7,6 +7,7 @@ x-bt: &bt
   env_file: .env
   volumes:
     - ./data:/data
+    - ${BT_MEDIA_HOST_DIR:-/mnt/local/localstorage/bt}:/media
   depends_on:
     - pot
 
@@ -27,6 +28,12 @@ services:
     container_name: bt-worker
     command: ["python", "-m", "bt.agent"]
     stop_grace_period: 20s
+
+  bt-downloader:
+    <<: *bt
+    container_name: bt-downloader
+    command: ["python", "-m", "bt.downloader"]
+    stop_grace_period: 30s
 
   pot:
     image: brainicism/bgutil-ytdlp-pot-provider:2.0.2-deno

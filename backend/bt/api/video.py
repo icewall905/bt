@@ -17,8 +17,10 @@ from sqlmodel import Session, select
 
 from .. import extras, streams, ytdl
 from ..db import get_settings, log_yt_request, session
-from ..models import Candidate, Category, Channel, Profile, ProfileChannel, Video, WatchHistory, now
-from .core import profile_id, video_out
+from ..downloader.service import abs_path
+from ..models import Candidate, Category, Channel, Download, Profile, ProfileChannel, Video, WatchHistory, now
+from .core import _offline_ids, profile_id, video_out
+from .downloads import download_out
 
 router = APIRouter()
 
@@ -84,9 +86,10 @@ def _channel_state(s: Session, pid: int, cid: str) -> dict:
 def _store_entries(s: Session, entries: list[dict], channel: dict | None = None) -> list[dict]:
     if channel:
         _upsert_channel(s, channel)
-    out = [video_out(ytdl.upsert_video(s, e)) for e in entries]
+    vids = [ytdl.upsert_video(s, e) for e in entries]
     s.commit()
-    return out
+    off = _offline_ids([v.id for v in vids])
+    return [video_out(v, offline=v.id in off) for v in vids]
 
 
 def _store_video(s: Session, info: dict, pid: int) -> dict:
@@ -100,8 +103,10 @@ def _store_video(s: Session, info: dict, pid: int) -> dict:
     cands = s.exec(select(Candidate).join(Category, Category.id == Candidate.category_id)
                    .where(Candidate.video_id == v.id, Category.profile_id == pid)).all()
     h = s.exec(select(WatchHistory).where(WatchHistory.profile_id == pid, WatchHistory.video_id == v.id)).first()
-    out = video_out(v, full=True)
+    dl = s.get(Download, v.id)
+    out = video_out(v, full=True, offline=bool(dl and dl.status == "done"))
     out.update(
+        download=download_out(dl),
         channel={"id": cid, "name": v.channel_name, "avatar": f"/api/channel/{cid}/avatar" if cid else "",
                  **_channel_state(s, pid, cid)},
         in_categories=[{"category_id": c.category_id, "candidate_id": c.id, "status": c.status, "score": c.score,
@@ -171,6 +176,32 @@ async def fallback(video_id: str):
     if not f:
         raise HTTPException(404, "no progressive format")
     return RedirectResponse(streams.proxy_url(f), status_code=302, headers={"Cache-Control": "no-store"})
+
+
+def _file_for(s: Session, video_id: str):
+    d = s.get(Download, video_id)
+    if not d or d.status != "done":
+        return None
+    p = abs_path(d.path)
+    if not p or not p.is_file():
+        return None
+    t = now()
+    last = d.last_played_at
+    if last is None or (t - (last if last.tzinfo else last.replace(tzinfo=t.tzinfo))).total_seconds() > 60:
+        d.last_played_at = t  # throttled: Range requests arrive in bursts
+        s.add(d)
+        s.commit()
+    return p
+
+
+@router.get("/video/{video_id}/file")
+async def video_file(video_id: str):
+    """Offline copy (merged mp4). Starlette FileResponse handles Range/206 itself."""
+    _vid(video_id)
+    p = await _db(_file_for, video_id)
+    if not p:
+        raise HTTPException(404, "not available offline")
+    return FileResponse(p, media_type="video/mp4", headers={"Cache-Control": "private, max-age=3600"})
 
 
 @router.get("/proxy/{token}")

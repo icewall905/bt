@@ -9,6 +9,7 @@ from . import auth
 from .api import agent as agent_api
 from .api import core
 from .api import video
+from .api import downloads
 from .config import STATIC_DIR
 from .db import init_db
 
@@ -23,6 +24,7 @@ app.add_middleware(auth.AuthMiddleware)
 app.include_router(auth.router, prefix="/api")
 app.include_router(core.router, prefix="/api")
 app.include_router(video.router, prefix="/api")
+app.include_router(downloads.router, prefix="/api")
 
 app.include_router(agent_api.router, prefix="/api")
 

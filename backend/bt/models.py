@@ -170,3 +170,21 @@ class YtRequest(SQLModel, table=True):
     kind: str = ""
     ok: bool = True
     detail: str = ""
+
+
+class Download(SQLModel, table=True):
+    """Locally cached copy of a video (merged H.264/AAC mp4 under MEDIA_DIR)."""
+    video_id: str = Field(primary_key=True)
+    status: str = Field(default="queued", index=True)  # queued|downloading|done|error|evicted
+    path: str = ""  # relative to MEDIA_DIR
+    size_bytes: int = 0
+    height: int = 0
+    vcodec: str = ""
+    progress: float = 0.0
+    error: str = ""
+    attempts: int = 0
+    pinned: bool = False  # manual "Save offline": never auto-evicted
+    requested_by_profile: Optional[int] = None
+    created_at: datetime = Field(default_factory=now)
+    finished_at: Optional[datetime] = None
+    last_played_at: Optional[datetime] = None

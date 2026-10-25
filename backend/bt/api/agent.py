@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, col, select
 
-from ..db import (get_agent_control, get_agent_state, get_session, get_settings, session, update_agent_control,
+from ..db import (get_agent_control, get_agent_state, get_kv, get_session, get_settings, session, update_agent_control,
                   yt_request_counts)
 from ..models import AgentEvent, Candidate, Category, now
 from .core import profile_id
@@ -40,6 +40,7 @@ def status_payload(s: Session, pid: Optional[int] = None) -> dict:
     st = get_settings(s)["throttle"]
     return {
         "state": get_agent_state(),
+        "downloader": get_kv("downloader_state", {"state": "offline"}),
         "control": get_agent_control(),
         "budget": {**yt_request_counts(), "max_hour": st["max_per_hour"], "max_day": st["max_per_day"]},
         "queues": _queues(s, pid),

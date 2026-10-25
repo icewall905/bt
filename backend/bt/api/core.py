@@ -26,24 +26,35 @@ def profile_id(x_profile_id: Optional[int] = Header(default=None), s: Session = 
     return p.id
 
 
-def video_out(v: Video, full: bool = False) -> dict:
+def _offline_ids(ids: list[str]) -> set[str]:
+    from ..db import session
+    from ..models import Download
+    if not ids:
+        return set()
+    with session() as s:
+        return set(s.exec(select(Download.video_id).where(col(Download.video_id).in_(ids),
+                                                          Download.status == "done")).all())
+
+
+def video_out(v: Video, full: bool = False, offline: Optional[bool] = None) -> dict:
     d = {
         "id": v.id, "title": v.title, "channel_id": v.channel_id, "channel_name": v.channel_name,
         "duration_s": v.duration_s, "published_at": v.published_at, "view_count": v.view_count,
         "like_count": v.like_count, "thumbnail": f"/api/thumb/{v.id}", "is_short": v.is_short,
         "is_live": v.is_live, "has_transcript": bool(v.transcript), "comment_count": len(v.comments or []),
+        "offline": bool(offline) if offline is not None else v.id in _offline_ids([v.id]),
     }
     if full:
         d.update(description=v.description, tags=v.tags, chapters=v.chapters)
     return d
 
 
-def candidate_out(c: Candidate, v: Optional[Video]) -> dict:
+def candidate_out(c: Candidate, v: Optional[Video], offline: Optional[bool] = None) -> dict:
     return {
         "id": c.id, "category_id": c.category_id, "status": c.status, "source": c.source, "score": c.score,
         "summary": c.summary, "reasons": c.reasons, "red_flags": c.red_flags, "tags": c.tags,
         "error": c.error, "created_at": c.created_at, "judged_at": c.judged_at,
-        "video": video_out(v) if v else {"id": c.video_id},
+        "video": video_out(v, offline=offline) if v else {"id": c.video_id},
     }
 
 
@@ -225,7 +236,14 @@ def category_feed(cid: int, status: str = "accepted", include_watched: bool = Fa
     else:
         q = q.order_by(col(Candidate.created_at).desc())
     rows = s.exec(q.offset(offset).limit(limit)).all()
-    return [candidate_out(c, v) for c, v in rows]
+    off = _offline_ids([c.video_id for c, _ in rows])  # one batched lookup instead of one per card
+    out = []
+    for c, v in rows:
+        d = candidate_out(c, None)
+        if v:
+            d["video"] = video_out(v, offline=v.id in off)
+        out.append(d)
+    return out
 
 
 @router.get("/feed/home")
@@ -236,9 +254,11 @@ def home_feed(per_row: int = 20, pid: int = Depends(profile_id), s: Session = De
                   .where(WatchHistory.profile_id == pid, WatchHistory.finished == False,  # noqa: E712
                          WatchHistory.position_s > 15)
                   .order_by(col(WatchHistory.updated_at).desc()).limit(per_row)).all()
+    off = _offline_ids([v.id for _, v in hist])
     if hist:
         rows.append({"kind": "continue", "title": "Continue watching", "emoji": "⏯️", "items": [
-            {"video": video_out(v), "position_s": h.position_s, "category_id": h.category_id} for h, v in hist]})
+            {"video": video_out(v, offline=v.id in off), "position_s": h.position_s, "category_id": h.category_id}
+            for h, v in hist]})
     # Categories
     for c in s.exec(select(Category).where(Category.profile_id == pid, Category.enabled == True)  # noqa: E712
                     .order_by(Category.position, Category.id)).all():
@@ -250,8 +270,9 @@ def home_feed(per_row: int = 20, pid: int = Depends(profile_id), s: Session = De
     if subs:
         vids = s.exec(select(Video).where(col(Video.channel_id).in_(subs), Video.is_short == False)  # noqa: E712
                       .order_by(col(Video.published_at).desc().nulls_last()).limit(per_row)).all()
+        off = _offline_ids([v.id for v in vids])
         rows.append({"kind": "subscriptions", "title": "New from subscriptions", "emoji": "📺",
-                     "items": [{"video": video_out(v)} for v in vids]})
+                     "items": [{"video": video_out(v, offline=v.id in off)} for v in vids]})
     return rows
 
 
@@ -363,7 +384,9 @@ def add_feedback(body: FeedbackIn, pid: int = Depends(profile_id), s: Session = 
 def list_feedback(limit: int = 100, pid: int = Depends(profile_id), s: Session = Depends(get_session)):
     rows = s.exec(select(Feedback, Video).join(Video, Video.id == Feedback.video_id, isouter=True)
                   .where(Feedback.profile_id == pid).order_by(col(Feedback.created_at).desc()).limit(limit)).all()
-    return [{**f.model_dump(), "video": video_out(v) if v else {"id": f.video_id}} for f, v in rows]
+    off = _offline_ids([f.video_id for f, _ in rows])
+    return [{**f.model_dump(), "video": video_out(v, offline=v.id in off) if v else {"id": f.video_id}}
+            for f, v in rows]
 
 
 @router.delete("/feedback/{fid}")
@@ -449,7 +472,9 @@ def list_history(limit: int = 60, pid: int = Depends(profile_id), s: Session = D
     rows = s.exec(select(WatchHistory, Video).join(Video, Video.id == WatchHistory.video_id, isouter=True)
                   .where(WatchHistory.profile_id == pid).order_by(col(WatchHistory.updated_at).desc())
                   .limit(limit)).all()
-    return [{**h.model_dump(), "video": video_out(v) if v else {"id": h.video_id}} for h, v in rows]
+    off = _offline_ids([h.video_id for h, _ in rows])
+    return [{**h.model_dump(), "video": video_out(v, offline=v.id in off) if v else {"id": h.video_id}}
+            for h, v in rows]
 
 
 @router.get("/history/{video_id}")
