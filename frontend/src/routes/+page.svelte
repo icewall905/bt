@@ -53,6 +53,16 @@
 		}
 	}
 
+	async function boring(v: Video, categoryId?: number) {
+		try {
+			await api.feedback({ video_id: v.id, category_id: categoryId ?? null, rating: -1, chips: ['Boring'] });
+			dropFromRows((x) => x.id === v.id);
+			toast.success('Noted — the AI will avoid boring ones like this.');
+		} catch {
+			toast.error('Could not send that.');
+		}
+	}
+
 	onMount(() => {
 		load();
 		let t: ReturnType<typeof setTimeout> | null = null;
@@ -192,6 +202,9 @@
 									<OfflineButton videoId={v.id} offline={!!v.offline} group="row-acts-{v.id}" />
 									<button class="btn why" use:focusable={{ group: `row-acts-${v.id}`, onSelect: () => markSeen(v) }}>
 										Seen it
+									</button>
+									<button class="btn why" use:focusable={{ group: `row-acts-${v.id}`, onSelect: () => boring(v, it.category_id) }}>
+										Boring
 									</button>
 									{#if v.channel_id}
 										<button class="btn why" use:focusable={{ group: `row-acts-${v.id}`, onSelect: () => dislikeChannel(v) }}>

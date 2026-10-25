@@ -37,7 +37,8 @@ with session() as s:
         cat = s.exec(select(Category).where(Category.name == "Seen it test")).one()
     for vid, title, ch in [("seenit00000", "Video the family has seen", "UCtest"),
                           ("other000000", "Video still fresh", "UCtest"),
-                          ("badch000001", "Video from a disliked channel", "UCbad")]:
+                          ("badch000001", "Video from a disliked channel", "UCbad"),
+                          ("boringvid000", "Video that is dull", "UCtest")]:
         s.merge(Video(id=vid, title=title, channel_id=ch,
                       channel_name="Test" if ch == "UCtest" else "Disliked", duration_s=600,
                       view_count=123456,
@@ -134,4 +135,23 @@ test('Home: hover reveals actions, age next to views, Seen it works', async ({ p
 	await expect(card).toHaveCount(0);
 	const feed = await (await request.get(`/api/feed/category/${id}`)).json();
 	expect(feed.map((c: { video: { id: string } }) => c.video.id)).not.toContain('other000000');
+});
+
+test('Boring sends feedback the agent learns from', async ({ page, request }) => {
+	const id = await getCatId(request);
+	await freshPage(page, `/category/${id}`);
+	const card = page.locator('.cand', { hasText: 'Video that is dull' });
+	await expect(card).toBeVisible();
+	await card.hover();
+	await card.getByRole('button', { name: 'Boring' }).click();
+
+	await expect(card).toHaveCount(0);
+	await expect(page.getByText('Noted — the AI will avoid boring ones like this.')).toBeVisible();
+	const fb = await (await request.get('/api/feedback')).json();
+	const mine = fb.find((f: { video_id: string }) => f.video_id === 'boringvid000');
+	expect(mine?.rating).toBe(-1);
+	expect(mine?.chips).toEqual(['Boring']);
+	// the suggestion is dismissed, so it is gone from the feed
+	const feed = await (await request.get(`/api/feed/category/${id}`)).json();
+	expect(feed.some((c: { video: { id: string } }) => c.video.id === 'boringvid000')).toBe(false);
 });
