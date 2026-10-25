@@ -72,7 +72,7 @@
 		<p class="sub">
 			<span class="ch">{v.channel_name ?? ''}</span>
 			{#if v.view_count}<span class="dot">{fmtCount(v.view_count)} views</span>{/if}
-			{#if v.published_at && size === 'grid'}<span class="dot">{timeAgo(v.published_at)}</span>{/if}
+			{#if v.published_at}<span class="dot">{timeAgo(v.published_at)}</span>{/if}
 		</p>
 	</div>
 </div>

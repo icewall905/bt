@@ -20,9 +20,10 @@ async function getCatId(request: import('@playwright/test').APIRequestContext) {
 
 test.beforeAll(() => {
 	execFileSync(join(BACKEND!, '.venv/bin/python'), ['-c', `
+from datetime import timedelta
 from sqlmodel import select
 from bt.db import init_db, session
-from bt.models import Candidate, Category, Profile, Video
+from bt.models import Candidate, Category, Profile, Video, now
 init_db()
 with session() as s:
     if not s.exec(select(Profile)).first():
@@ -38,7 +39,9 @@ with session() as s:
                           ("other000000", "Video still fresh", "UCtest"),
                           ("badch000001", "Video from a disliked channel", "UCbad")]:
         s.merge(Video(id=vid, title=title, channel_id=ch,
-                      channel_name="Test" if ch == "UCtest" else "Disliked", duration_s=600))
+                      channel_name="Test" if ch == "UCtest" else "Disliked", duration_s=600,
+                      view_count=123456,
+                      published_at=(now() - timedelta(days=3)) if vid == "other000000" else None))
         if not s.exec(select(Candidate).where(Candidate.category_id == cat.id,
                                              Candidate.video_id == vid)).first():
             s.add(Candidate(category_id=cat.id, video_id=vid, status="accepted", score=80, summary="x"))
@@ -107,4 +110,28 @@ test('remote reaches the action strip: Down from a card dives in', async ({ page
 	await expect(page.getByRole('dialog')).toBeVisible();
 	await page.keyboard.press('Backspace');
 	await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('Home: hover reveals actions, age next to views, Seen it works', async ({ page, request }) => {
+	const id = await getCatId(request);
+	// at this point only 'Video still fresh' is still an accepted suggestion in this category
+	await freshPage(page, '/');
+	const card = page.locator('.card', { hasText: 'Video still fresh' });
+	await expect(card).toBeVisible();
+
+	// age shows next to the view count
+	const sub = card.locator('.sub');
+	await expect(sub.getByText(/views/)).toBeVisible();
+	await expect(sub.getByText(/ago/)).toBeVisible();
+
+	// hover reveals the action strip
+	await card.hover();
+	const btn = card.getByRole('button', { name: 'Seen it' });
+	await expect(btn).toHaveCSS('opacity', '1');
+	await btn.click();
+
+	await expect(page.getByText("Marked as seen. The AI won't suggest it again.")).toBeVisible();
+	await expect(card).toHaveCount(0);
+	const feed = await (await request.get(`/api/feed/category/${id}`)).json();
+	expect(feed.map((c: { video: { id: string } }) => c.video.id)).not.toContain('other000000');
 });

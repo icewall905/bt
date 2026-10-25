@@ -6,9 +6,11 @@
 	import { session } from '$lib/stores/session.svelte';
 	import { focusable } from '$lib/nav';
 	import { fmtDuration, isVideo } from '$lib/util';
+	import { toast } from '$lib/stores/toast.svelte';
 	import type { HomeRow, Video } from '$lib/types';
 	import Row from '$lib/components/Row.svelte';
 	import VideoCard from '$lib/components/VideoCard.svelte';
+	import OfflineButton from '$lib/components/OfflineButton.svelte';
 	import LookingPlaceholder from '$lib/components/LookingPlaceholder.svelte';
 	import AgentGlyph from '$lib/components/AgentGlyph.svelte';
 
@@ -22,6 +24,32 @@
 		} catch {
 			failed = true;
 			rows = rows ?? [];
+		}
+	}
+
+	function dropFromRows(pred: (v: Video) => boolean) {
+		rows = (rows ?? []).map((r) =>
+			r.kind === 'category' ? { ...r, items: r.items.filter((it) => !it.video || !pred(it.video)) } : r);
+	}
+
+	async function markSeen(v: Video) {
+		try {
+			await api.markSeen(v.id);
+			dropFromRows((x) => x.id === v.id);
+			toast.success("Marked as seen. The AI won't suggest it again.");
+		} catch {
+			toast.error('Could not mark it as seen.');
+		}
+	}
+
+	async function dislikeChannel(v: Video) {
+		if (!v.channel_id) return;
+		try {
+			await api.blockChannel(v.channel_id, v.channel_name);
+			dropFromRows((x) => x.channel_id === v.channel_id);
+			toast.success(`No more from ${v.channel_name ?? 'this channel'}. The AI will skip that channel.`);
+		} catch {
+			toast.error(`Could not block ${v.channel_name ?? 'this channel'}.`);
 		}
 	}
 
@@ -151,14 +179,27 @@
 				{:else}
 					{#each row.items as it}
 						{#if it.video && isVideo(it.video)}
+							{@const v = it.video}
 							<VideoCard
-								video={it.video}
+								video={v}
 								group="row-{row.category_id}"
-								href="/watch/{it.video.id}?c={row.category_id}"
+								href="/watch/{v.id}?c={row.category_id}"
 								score={it.score}
 								summary={it.summary}
 								color={row.color}
-							/>
+							>
+								{#snippet actions()}
+									<OfflineButton videoId={v.id} offline={!!v.offline} group="row-acts-{v.id}" />
+									<button class="btn why" use:focusable={{ group: `row-acts-${v.id}`, onSelect: () => markSeen(v) }}>
+										Seen it
+									</button>
+									{#if v.channel_id}
+										<button class="btn why" use:focusable={{ group: `row-acts-${v.id}`, onSelect: () => dislikeChannel(v) }}>
+											Don't like channel
+										</button>
+									{/if}
+								{/snippet}
+							</VideoCard>
 						{/if}
 					{/each}
 					<a class="more" href="/category/{row.category_id}" style:--cat={row.color} use:focusable={{ group: `row-${row.category_id}`, id: `more-${row.category_id}` }}>
