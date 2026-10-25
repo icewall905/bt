@@ -168,6 +168,7 @@
 		position: absolute;
 		right: 0.5rem;
 		bottom: 0.5rem;
+		z-index: 2; /* above the hover summary overlay */
 		padding: 0.1rem 0.45rem;
 		border-radius: 0.4rem;
 		background: rgba(0, 0, 0, 0.78);
@@ -219,10 +220,7 @@
 		opacity: 1;
 		transform: none;
 	}
-	:global(html[data-modality='keys']) .hit:focus + .thumb .dur,
-	.hit:hover + .thumb .dur {
-		opacity: 0;
-	}
+	/* The duration badge stays visible on hover/focus: hovering is how the action strip is reached. */
 	.meta {
 		display: grid;
 		gap: 0.25rem;
