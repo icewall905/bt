@@ -37,15 +37,25 @@ Workflow: `/home/hnyg/AGENTS.md` (implement → independent review → fix → r
 - `docker compose up -d --build` after rsync; `bt-api`, `bt-worker`, `bt-downloader`, `bt-pot` expected running;
   `curl localhost:6645/api/health` → `{"ok":true}`.
 
-## Remaining / to do
-1. **End-to-end on host** (PLAN.md Verification): two profiles with categories exist already ("Fredagsfest",
-   "Grownups eveningfun" under profile Family); watch the agent pill/Agent page, confirm throttling in YtRequest counts,
-   give feedback "mean to the cat" → lesson appears and affects judgments, downloads appear in
-   `/mnt/local/localstorage/bt`, offline playback works.
-2. **Projector test** (physical): press remote button 6 → `bt-mode` opens Chromium kiosk at `http://localhost:6645`;
+## Remaining / to do (physical only)
+1. **Projector test**: press remote button 6 → `bt-mode` opens Chromium kiosk at `http://localhost:6645`;
    navigate + play with remote only; confirm audio on HDMI and that other modes close bt-app.
    Log: `/home/console/.local/share/bt-mode.log`.
-3. **PWA install** (physical) from a phone at `https://bt.tdgs.org`.
+2. **PWA install** from a phone at `https://bt.tdgs.org` (rproxy verified serving; HTTP/2 via traefik).
+
+## Verified end-to-end on host (2026-10-25, wrap-up session)
+- All four services up: `bt-api` (healthy, `:6645`), `bt-worker`, `bt-downloader`, `bt-pot`; `/api/health` OK locally
+  and via `https://bt.tdgs.org`.
+- Curator loop live: plan → fetch → transcript → comments → judge → accept/reject events streaming.
+- Throttling confirmed: budget 90/120 per hour (downloads included), jittered "sleeping" waits between requests.
+- Feedback → lesson verified live: "mean to the cat" on a cat video → lesson learned in ~50 s ("reject any clip where
+  the animal is startled, stressed, embarrassed, or mocked for laughs…"), channel trust −0.3, and the very next cat
+  video from that channel was **rejected (28)** — previously a similar one was accepted (68).
+- Downloads land in `/mnt/local/localstorage/bt` (`<id[:2]>/<id>.mp4`, 1080p, 326 MB first file) with `.tmp/*.part`
+  staging; 15 queued, round-robin across categories; SSE `state.downloader` reporting progress.
+- Offline playback verified at the API level: `/api/video/{id}/file` serves 206 for byte ranges, video detail carries
+  `download: {status: done, height: 1080, …}` and `offline: true`. (Player UI path is covered by Playwright; the
+  projector test above is the last physical confirmation.)
 
 ## Known accepted limitations (from final reviews, all LOW)
 - Card menus show "Save offline" even for videos already queued/downloading (cards only carry the `offline` boolean;
