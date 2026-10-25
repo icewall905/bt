@@ -97,7 +97,8 @@ def candidate_ids(s: Session, cat_id: int) -> set[str]:
 
 
 def status_counts(s: Session, cat_id: int) -> dict:
-    rows = s.exec(select(Candidate.status, func.count()).where(Candidate.category_id == cat_id)
+    rows = s.exec(select(Candidate.status, func.count()).where(Candidate.category_id == cat_id,
+                                                               Candidate.dismissed == False)  # noqa: E712
                   .group_by(Candidate.status)).all()
     return {st: n for st, n in rows}
 

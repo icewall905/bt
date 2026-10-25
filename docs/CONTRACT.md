@@ -14,6 +14,12 @@ Deploy: `root@10.0.10.73:/root/compose/bt`, port **6645**, public URL `https://b
   (`queue_titles`: accepted, not dismissed, not finished-watching, newest judged first, ≤15 titles) with a VARIETY
   instruction — plan searches for underrepresented topics from the brief, and judge borderline videos stricter when the
   queue already holds several very similar ones / kinder when they fill a gap. Quality always wins over variety.
+- **"Seen it"** (`POST /api/history/seen {video_id}`): marks the video finished-watched for the active profile and
+  dismisses its candidates in the profile's categories; the prefilter already rejected watched videos, and dismissed
+  candidates are skipped by enrichment, judging and the download queue. Button on category cards.
+- **"Don't like channel"** (`POST /api/channels/{id}/block`): blocks the channel for the profile and dismisses its
+  accepted/pending candidates in the profile's categories (blocked channels are rejected by the prefilter). Button on
+  category cards; the watch page "Block channel" uses the same endpoint.
 - Build material lives in this repo; commit when ready (no AI attribution trailers in commits).
 
 ## Layout / ownership

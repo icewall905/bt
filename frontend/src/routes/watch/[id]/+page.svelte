@@ -490,7 +490,10 @@
 
 	async function channelAction(body: { subscribed?: boolean; blocked?: boolean }) {
 		if (!detail?.channel?.id) return;
-		const r = await api.putChannel(detail.channel.id, { ...body, name: detail.channel.name || detail.channel_name });
+		// Blocking also dismisses the channel's other suggestions in your categories.
+		const r = body.blocked
+			? await api.blockChannel(detail.channel.id, detail.channel.name || detail.channel_name)
+			: await api.putChannel(detail.channel.id, { ...body, name: detail.channel.name || detail.channel_name });
 		detail.channel = { ...detail.channel, subscribed: r.subscribed, blocked: r.blocked };
 		toast.success(body.blocked ? `Blocked ${detail.channel_name}. The AI will skip this channel.` : r.subscribed ? `Subscribed to ${detail.channel_name}` : `Unsubscribed from ${detail.channel_name}`);
 	}

@@ -154,6 +154,9 @@ export const api = {
 	channels: () => get<ChannelEntry[]>('/channels'),
 	putChannel: (id: string, body: Partial<Pick<ChannelEntry, 'name' | 'avatar' | 'handle' | 'subscribed' | 'blocked'>>) =>
 		put<{ id: string; subscribed: boolean; blocked: boolean; trust: number }>(`/channels/${encodeURIComponent(id)}`, body),
+	blockChannel: (id: string, name?: string) =>
+		post<{ id: string; subscribed: boolean; blocked: boolean; trust: number; dismissed: number }>(
+			`/channels/${encodeURIComponent(id)}/block`, name ? { name } : {}),
 	channel: (ref: string) => get<{ channel: ChannelInfo; videos: Video[] }>(`/channel/${encodeURIComponent(ref)}`),
 	channelAvatar: (id: string) => `/api/channel/${encodeURIComponent(id)}/avatar`,
 
@@ -205,6 +208,7 @@ export const api = {
 	saveHistory: (h: { video_id: string; position_s: number; duration_s?: number; category_id?: number | null; finished?: boolean }, keepalive = false) =>
 		post<{ ok: boolean; finished: boolean }>('/history', h, { toast: false, keepalive }),
 	clearHistory: () => del<{ ok: boolean }>('/history'),
+	markSeen: (video_id: string) => post<{ ok: boolean; dismissed: number }>('/history/seen', { video_id }),
 
 	// settings
 	settings: () => get<Settings>('/settings'),

@@ -1,4 +1,5 @@
 """Profiles, categories, feeds, channels, feedback, lessons, history, settings."""
+import re
 from datetime import timedelta
 from typing import Optional
 
@@ -223,7 +224,7 @@ def category_feed(cid: int, status: str = "accepted", include_watched: bool = Fa
     _own_category(s, pid, cid)
     q = select(Candidate, Video).join(Video, Video.id == Candidate.video_id).where(Candidate.category_id == cid)
     if status == "pending":
-        q = q.where(col(Candidate.status).in_(["found", "enriched"]))
+        q = q.where(col(Candidate.status).in_(["found", "enriched"]), Candidate.dismissed == False)  # noqa: E712
     elif status != "all":
         q = q.where(Candidate.status == status)
     if status == "accepted":
@@ -352,6 +353,39 @@ def put_channel(channel_id: str, body: ChannelPut, pid: int = Depends(profile_id
     s.add(pc)
     s.commit()
     return {"id": channel_id, "subscribed": pc.subscribed, "blocked": pc.blocked, "trust": pc.trust}
+
+
+@router.post("/channels/{channel_id}/block")
+def block_channel(channel_id: str, body: Optional[ChannelPut] = None,
+                  pid: int = Depends(profile_id), s: Session = Depends(get_session)):
+    """"Don't like channel": block it and dismiss its accepted/pending candidates in this profile's
+    categories, so nothing lingers in the feeds and the pipeline spends no budget on it.
+    (The worker prefilter already rejects blocked channels for future discoveries.)
+    """
+    ch = s.get(Channel, channel_id) or Channel(id=channel_id)
+    for k in ("name", "avatar", "handle"):
+        if body and (v := getattr(body, k)) is not None:
+            setattr(ch, k, v)
+    s.add(ch)
+    pc = s.exec(select(ProfileChannel).where(ProfileChannel.profile_id == pid,
+                                              ProfileChannel.channel_id == channel_id)).first()
+    pc = pc or ProfileChannel(profile_id=pid, channel_id=channel_id)
+    pc.blocked, pc.subscribed = True, False
+    s.add(pc)
+    cat_ids = set(s.exec(select(Category.id).where(Category.profile_id == pid)).all())
+    dismissed = 0
+    if cat_ids:
+        vids = set(s.exec(select(Video.id).where(Video.channel_id == channel_id)).all())
+        if vids:
+            rows = s.exec(select(Candidate).where(col(Candidate.video_id).in_(vids),
+                                                 col(Candidate.category_id).in_(cat_ids),
+                                                 Candidate.status.in_(["accepted", "found", "enriched"]))).all()
+            for c in rows:
+                c.dismissed = True
+                s.add(c)
+                dismissed += 1
+    s.commit()
+    return {"id": channel_id, "subscribed": False, "blocked": True, "trust": pc.trust, "dismissed": dismissed}
 
 
 # ---------- feedback & lessons
@@ -488,6 +522,36 @@ def clear_history(pid: int = Depends(profile_id), s: Session = Depends(get_sessi
     s.exec(delete(WatchHistory).where(WatchHistory.profile_id == pid))
     s.commit()
     return {"ok": True}
+
+
+class SeenIn(BaseModel):
+    video_id: str
+
+
+@router.post("/history/seen")
+def mark_seen(body: SeenIn, pid: int = Depends(profile_id), s: Session = Depends(get_session)):
+    """Mark a video watched without playing it: it leaves the feeds and the AI stops suggesting it.
+
+    Dismisses its candidates in this profile's categories (also skips enrichment/judging/download)
+    and records a finished WatchHistory row (the prefilter already rejects watched videos).
+    """
+    if not re.match(r"^[A-Za-z0-9_-]{11}$", body.video_id):
+        raise HTTPException(status_code=404, detail="no such video")
+    v = s.get(Video, body.video_id)
+    h = s.exec(select(WatchHistory).where(WatchHistory.profile_id == pid,
+                                           WatchHistory.video_id == body.video_id)).first()
+    h = h or WatchHistory(profile_id=pid, video_id=body.video_id)
+    h.finished, h.updated_at = True, now()
+    h.duration_s = (v.duration_s if v and v.duration_s else h.duration_s) or 0
+    s.add(h)
+    cat_ids = set(s.exec(select(Category.id).where(Category.profile_id == pid)).all())
+    rows = s.exec(select(Candidate).where(Candidate.video_id == body.video_id,
+                                          col(Candidate.category_id).in_(cat_ids))).all() if cat_ids else []
+    for c in rows:
+        c.dismissed = True
+        s.add(c)
+    s.commit()
+    return {"ok": True, "dismissed": len(rows)}
 
 
 # ---------- settings

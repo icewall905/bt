@@ -79,7 +79,7 @@ def pending(limit: int = 20) -> list[Candidate]:
         rows = s.exec(select(Candidate, Category.id, Video.id)
                       .join(Category, Category.id == Candidate.category_id, isouter=True)
                       .join(Video, Video.id == Candidate.video_id, isouter=True)
-                      .where(Candidate.status == "enriched")
+                      .where(Candidate.status == "enriched", Candidate.dismissed == False)  # noqa: E712
                       .order_by(col(Candidate.created_at)).limit(limit * 3)).all()
     out = []
     for c, cat_id, vid in rows:

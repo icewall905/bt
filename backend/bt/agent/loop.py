@@ -95,7 +95,8 @@ class Worker:
     def _next_found(needs: list[data.Need]) -> Optional[Candidate]:
         with session() as s:
             for need in needs:
-                c = s.exec(select(Candidate).where(Candidate.category_id == need.cat.id, Candidate.status == "found")
+                c = s.exec(select(Candidate).where(Candidate.category_id == need.cat.id, Candidate.status == "found",
+                                                   Candidate.dismissed == False)  # noqa: E712
                            .order_by(col(Candidate.created_at)).limit(1)).first()
                 if c:
                     return c

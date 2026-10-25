@@ -55,6 +55,30 @@
 		toast.success(agent.control.paused ? 'Queued. Resume the AI to start searching.' : `The AI will search for ${cat?.name ?? 'this category'} next.`);
 	}
 
+	async function markSeen(c: Candidate) {
+		try {
+			await api.markSeen(c.video.id);
+			items = (items ?? []).filter((x) => x.id !== c.id);
+			toast.success("Marked as seen. The AI won't suggest it again.");
+		} catch {
+			toast.error("Could not mark it as seen.");
+		}
+	}
+
+	async function dislikeChannel(c: Candidate) {
+		if (!isVideo(c.video)) return;
+		const chId = c.video.channel_id;
+		const name = c.video.channel_name ?? 'this channel';
+		if (!chId) return;
+		try {
+			await api.blockChannel(chId, name);
+			items = (items ?? []).filter((x) => !isVideo(x.video) || x.video.channel_id !== chId);
+			toast.success(`No more from ${name}. The AI will skip that channel.`);
+		} catch {
+			toast.error(`Could not block ${name}.`);
+		}
+	}
+
 	const working = $derived(agent.state.category_id === id && agent.effective !== 'paused' && agent.effective !== 'offline');
 	const TABS: { key: Tab; label: string; hint: string }[] = [
 		{ key: 'accepted', label: 'Picked', hint: 'accepted' },
@@ -142,6 +166,16 @@
 									{c.status === 'rejected' ? 'Why rejected?' : c.status === 'accepted' ? 'Why picked?' : 'Details'}
 								</button>
 								{#if c.status === 'accepted'}<OfflineButton videoId={c.video.id} offline={isVideo(c.video) && !!c.video.offline} group="cand-acts-{c.id}" />{/if}
+									{#if c.status === 'accepted' || c.status === 'found' || c.status === 'enriched'}
+										<button class="btn why" use:focusable={{ group: `cand-acts-${c.id}`, onSelect: () => markSeen(c) }}>
+											{c.status === 'accepted' ? 'Seen it' : 'Seen it, skip'}
+										</button>
+									{/if}
+									{#if c.status === 'accepted' && isVideo(c.video) && c.video.channel_id}
+										<button class="btn why" use:focusable={{ group: `cand-acts-${c.id}`, onSelect: () => dislikeChannel(c) }}>
+											Don't like channel
+										</button>
+									{/if}
 								{#if c.source === 'manual'}<span class="chip small-chip">Added by you</span>{/if}
 							{/snippet}
 						</VideoCard>
