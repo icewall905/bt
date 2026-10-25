@@ -90,7 +90,7 @@ def make_plan(rt: Runtime, cat: Category, plan: dict) -> bool:
 def _insert(rt: Runtime, cat: Category, entries: list[dict], source: str) -> dict:
     """Prefilter + insert found candidates. Returns counts."""
     hide_shorts = bool(rt.settings()["extras"].get("hide_shorts", True))
-    added, skipped, reasons = 0, 0, {}
+    added, skipped, reasons, new = 0, 0, {}, []
     with session() as s:
         ctx = data.profile_ctx(s, cat.profile_id)
         existing = data.candidate_ids(s, cat.id)
@@ -104,12 +104,16 @@ def _insert(rt: Runtime, cat: Category, entries: list[dict], source: str) -> dic
                 reasons[why.split(" (")[0]] = reasons.get(why.split(" (")[0], 0) + 1
                 continue
             rt.yt.upsert_video(s, e)
-            s.add(Candidate(category_id=cat.id, video_id=e["id"], status="found", source=source))
+            cand = Candidate(category_id=cat.id, video_id=e["id"], status="found", source=source)
+            s.add(cand)
+            new.append(cand)
             existing.add(e["id"])
             added += 1
             room -= 1
         s.commit()
-    return {"found": len(entries), "added": added, "skipped": skipped, "skip_reasons": reasons}
+        ids = [c.id for c in new]
+    return {"found": len(entries), "added": added, "skipped": skipped, "skip_reasons": reasons,
+            "candidate_ids": ids}
 
 
 def discover(rt: Runtime, rl, cat: Category) -> Optional[dict]:

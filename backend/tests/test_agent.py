@@ -219,6 +219,12 @@ def test_pipeline_found_enriched_judged():
     assert {"plan", "search", "transcript", "comments", "judge", "accept", "reject"} <= kinds
     acc = events("accept")[0]
     assert acc.message.startswith("✅ Accepted (86)") and acc.payload["score"] == 86 and acc.video_id == "vidGOOD0001"
+    # every candidate-related event links to its candidate (UI opens /api/agent/candidates/{id})
+    vid_events = [e for e in events() if e.video_id and e.category_id]
+    assert vid_events and all(e.payload.get("candidate_id") == cs[e.video_id].id for e in vid_events)
+    assert {e.kind for e in vid_events} >= {"metadata", "transcript", "comments", "judge", "accept", "reject"}
+    found_ev = [e for e in events("search") if e.payload.get("candidate_ids")]
+    assert set(found_ev[0].payload["candidate_ids"]) == {c.id for c in cs.values()}
     srch = [e for e in events("search") if "query" in e.payload]
     assert srch[0].payload["query"] == "marble run build"
     # judge got the thumbnail as image

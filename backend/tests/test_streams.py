@@ -70,8 +70,20 @@ def test_mpd_avc_default(info):
     assert [a.get("lang") for a in audio] == ["en", "de"]
     assert audio[0].find("d:Role", NS).get("value") == "main"
     en_ids = [r.get("id") for r in audio[0].findall("d:Representation", NS)]
-    assert en_ids == ["139", "140"]
+    assert en_ids == ["140"]  # HE-AAC (139, mp4a.40.5) never mixed with AAC-LC in one set
     assert audio[0].find("d:Representation/d:AudioChannelConfiguration", NS).get("value") == "2"
+
+
+def test_select_audio_single_codec_and_stereo():
+    fmts = [af(139, "mp4a.40.5", tbr=48.0), af(140, "mp4a.40.2", tbr=130.0),
+            af(256, "mp4a.40.5", tbr=192.0, audio_channels=6), af(258, "mp4a.40.2", tbr=384.0, audio_channels=6),
+            af(250, "opus", ext="webm", tbr=70.0), af(251, "opus", ext="webm", tbr=140.0)]
+    a = streams.select_audio({"formats": fmts}, "avc1")
+    assert [f["format_id"] for f in a["en"]] == ["140"]
+    a = streams.select_audio({"formats": fmts}, "vp9")
+    assert [f["format_id"] for f in a["en"]] == ["250", "251"]
+    only_he = streams.select_audio({"formats": [af(139, "mp4a.40.5")]}, "avc1")
+    assert [f["format_id"] for f in only_he["en"]] == ["139"]
 
 
 def test_mpd_vp9_and_max_height(info):
@@ -156,9 +168,9 @@ def test_probe_ranges_redirect_allowlist_and_log(monkeypatch):
 
 def test_mpd_validate_drops_unreachable(info):
     root = _parse(streams.build_mpd(info, 1080, "avc1", url_for=lambda f: "x",
-                                    validate=lambda f: f["format_id"] not in ("160", "139")))
+                                    validate=lambda f: f["format_id"] not in ("160", "140-de")))
     ids = [r.get("id") for r in root.iter("{urn:mpeg:dash:schema:mpd:2011}Representation")]
-    assert "160" not in ids and "139" not in ids and "137" in ids and "140" in ids
+    assert "160" not in ids and "137" in ids and "140" in ids
 
 
 def test_mpd_no_formats():

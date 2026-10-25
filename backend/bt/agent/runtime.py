@@ -58,6 +58,16 @@ def iso(d: Optional[datetime]) -> Optional[str]:
     return aware(d).isoformat() if d else None
 
 
+def candidate_id(category_id: int, video_id: str) -> Optional[int]:
+    from sqlmodel import select
+
+    from ..db import session
+    from ..models import Candidate
+    with session() as s:
+        return s.exec(select(Candidate.id).where(Candidate.category_id == category_id,
+                                                 Candidate.video_id == video_id)).first()
+
+
 class Runtime:
     """Shared context passed to every pipeline step.
 
@@ -170,8 +180,13 @@ class Runtime:
         if category is not None:
             kw.setdefault("category_id", category.id)
             kw.setdefault("profile_id", category.profile_id)
+        payload = dict(payload or {})
+        if video_id and kw.get("category_id") and "candidate_id" not in payload:
+            cid = candidate_id(kw["category_id"], video_id)
+            if cid is not None:
+                payload["candidate_id"] = cid  # lets the UI open /api/agent/candidates/{id}
         log.log(logging.WARNING if level in ("warn", "error") else logging.INFO, "%s", message)
-        return emit(kind, message, level, video_id=video_id, payload=payload or {}, **kw)
+        return emit(kind, message, level, video_id=video_id, payload=payload, **kw)
 
     # ---- waiting
     def sleep(self, seconds: float, state: str = "sleeping", detail: str = "", category: Optional[Category] = None,

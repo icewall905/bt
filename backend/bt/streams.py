@@ -145,8 +145,17 @@ def select_video(info: dict, max_height: int = 1080, prefer_codec: str = "avc1")
     return "", []
 
 
+def _abr(f: dict) -> float:
+    return f.get("tbr") or f.get("abr") or 0
+
+
 def select_audio(info: dict, video_family: str = "avc1") -> dict[str, list[dict]]:
-    """-> {lang: [formats]} with one codec family per language."""
+    """-> {lang: [formats]}: one exact codec string + channel count per language.
+
+    Mixing HE-AAC (mp4a.40.5, 22.05 kHz core + SBR) and AAC-LC (mp4a.40.2, 44.1 kHz) in one
+    AdaptationSet makes ABR reconfigure the audio decoder mid-stream (sample-rate change), a known
+    source of MSE decode errors/stalls; likewise 5.1 vs stereo. Keep only the group (codec, channels)
+    with the best stereo bitrate."""
     pref = ["mp4a", "opus"] if video_family in ("avc1", "") else ["opus", "mp4a"]
     by_lang: dict[str, list[dict]] = {}
     for f in audio_candidates(info):
@@ -156,7 +165,12 @@ def select_audio(info: dict, video_family: str = "avc1") -> dict[str, list[dict]
         for fam in pref:
             sel = [f for f in fs if _afamily(f["acodec"]) == fam]
             if sel:
-                out[lang] = sorted(sel, key=lambda f: f.get("tbr") or f.get("abr") or 0)
+                groups: dict[tuple, list[dict]] = {}
+                for f in sel:
+                    groups.setdefault(((f.get("acodec") or "").lower(), int(f.get("audio_channels") or 2)),
+                                      []).append(f)
+                best = max(groups, key=lambda k: (k[1] == 2, max(_abr(f) for f in groups[k])))
+                out[lang] = sorted(groups[best], key=_abr)
                 break
     return out
 
