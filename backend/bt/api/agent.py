@@ -169,11 +169,20 @@ async def llm_test(body: LlmTest, s: Session = Depends(get_session)):
     try:
         async with httpx.AsyncClient(timeout=60) as c:
             models = (await c.get(f"{base}/models", headers=headers)).json()
-            r = await c.post(f"{base}/chat/completions", headers=headers, json={
-                "model": body.model or cfg["model"], "max_tokens": 20,
-                "messages": [{"role": "user", "content": "Reply with just: pong"}]})
+            body = {"model": body.model or cfg["model"], "max_tokens": 20,
+                    "messages": [{"role": "user", "content": "Reply with just: pong"}]}
+            if cfg.get("thinking") is False:
+                body["chat_template_kwargs"] = {"enable_thinking": False}
+            r = await c.post(f"{base}/chat/completions", headers=headers, json=body)
             r.raise_for_status()
-            reply = r.json()["choices"][0]["message"].get("content", "")
+            reply = r.json()["choices"][0]["message"].get("content") or ""
+            if not reply.strip() and "chat_template_kwargs" not in body:
+                # A thinking model spent the whole budget reasoning (empty content): retry
+                # with thinking off, the same fallback the agent worker uses.
+                body["chat_template_kwargs"] = {"enable_thinking": False}
+                r = await c.post(f"{base}/chat/completions", headers=headers, json=body)
+                r.raise_for_status()
+                reply = r.json()["choices"][0]["message"].get("content") or ""
         return {"ok": True, "models": [m.get("id") for m in models.get("data", [])], "reply": reply}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": str(e)}
