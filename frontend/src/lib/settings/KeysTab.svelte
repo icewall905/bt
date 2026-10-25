@@ -51,8 +51,11 @@
 	}
 	function stop() {
 		capture = false;
-		offCap?.();
+		// Defer unhooking: raw key listeners run first in the engine's handler, so the
+		// Back press that stops capture would otherwise fall through and navigate.
+		const off = offCap;
 		offCap = null;
+		if (off) setTimeout(off, 0);
 		if (idle) clearTimeout(idle);
 	}
 	const last = $derived(keys[0]);

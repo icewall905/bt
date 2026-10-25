@@ -20,7 +20,7 @@ from sqlmodel import Session, col, func, select
 
 from .. import ytdl
 from ..config import MEDIA_DIR
-from ..db import emit, get_agent_control, get_agent_state, get_kv, get_settings, save_setting, session, \
+from ..db import emit, get_agent_control, get_agent_state, get_settings, save_setting, session, \
     yt_request_counts
 from ..models import Candidate, Category, Download, Video, WatchHistory, now
 
@@ -327,6 +327,8 @@ class Downloader:
                 self.set_state("full", detail="Storage cap reached (only wanted/pinned videos left)")
                 return "full"
             row = s.get(Download, vid)
+            if not row or row.status not in ("queued", "error"):
+                return "removed"  # deleted by the user in the window since next_download()
             row.status, row.error, row.progress = "downloading", "", row.progress or 0.0
             s.add(row)
             s.commit()
@@ -382,31 +384,36 @@ class Downloader:
             emit("download", f"⚠️ Download failed: {title} ({str(e)[:160]})", "warn", video_id=vid)
             return "error"
 
-        src = Path(res["path"])
-        if not src.is_file():
-            self._fail(vid, "downloaded file missing")
+        try:
+            src = Path(res["path"])
+            if not src.is_file():
+                self._fail(vid, "downloaded file missing")
+                return "error"
+            dst = MEDIA_DIR / rel_path(vid)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(src, dst)  # atomic within the same filesystem
+            shutil.rmtree(work, ignore_errors=True)
+            size = dst.stat().st_size
+            with session() as s:
+                row = s.get(Download, vid)
+                if not row or row.status != "downloading":  # deleted by the user meanwhile
+                    dst.unlink(missing_ok=True)
+                    return "aborted"
+                row.status, row.path, row.size_bytes, row.progress = "done", rel_path(vid), size, 1.0
+                row.height, row.vcodec, row.error, row.finished_at = res["height"], res["vcodec"], "", now()
+                s.add(row)
+                if res.get("info"):
+                    try:
+                        ytdl.upsert_video(s, res["info"])  # fills title etc. for manual "Save offline" placeholders
+                    except Exception:
+                        log.exception("upsert after download failed")
+                s.commit()
+                title = (s.get(Video, vid) or Video(id=vid)).title or title
+                make_room(s, cfg, 0, allow_wanted=False)
+        except Exception as e:  # NFS/IO trouble in the move or commit: fail the row, never strand it
+            self._fail(vid, f"{type(e).__name__}: {e}")
+            emit("download", f"⚠️ Saving download failed: {title} ({str(e)[:160]})", "warn", video_id=vid)
             return "error"
-        dst = MEDIA_DIR / rel_path(vid)
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(src, dst)  # atomic within the same filesystem
-        shutil.rmtree(work, ignore_errors=True)
-        size = dst.stat().st_size
-        with session() as s:
-            row = s.get(Download, vid)
-            if not row or row.status != "downloading":  # deleted by the user meanwhile
-                dst.unlink(missing_ok=True)
-                return "aborted"
-            row.status, row.path, row.size_bytes, row.progress = "done", rel_path(vid), size, 1.0
-            row.height, row.vcodec, row.error, row.finished_at = res["height"], res["vcodec"], "", now()
-            s.add(row)
-            if res.get("info"):
-                try:
-                    ytdl.upsert_video(s, res["info"])  # fills title etc. for manual "Save offline" placeholders
-                except Exception:
-                    log.exception("upsert after download failed")
-            s.commit()
-            title = (s.get(Video, vid) or Video(id=vid)).title or title
-            make_room(s, cfg, 0, allow_wanted=False)
         emit("download", f"✅ Saved offline ({res['height']}p, {size / 1e6:.0f} MB): {title}", "success", video_id=vid,
              payload={"size_bytes": size, "height": res["height"]})
         return "done"
@@ -443,7 +450,7 @@ class Downloader:
             self.last_category = cat
         if r == "full":
             return 300
-        if r in ("aborted", "blocked"):
+        if r in ("aborted", "blocked", "removed"):
             return 2
         gap = float(cfg.get("min_gap_s") or 0)
         self.set_state("sleeping", detail="Pause between downloads",
@@ -475,7 +482,3 @@ class Downloader:
                 save_setting("downloader_state", {"state": "offline", "updated_at": now().isoformat()})
             except Exception:
                 log.exception("shutdown cleanup failed")
-
-
-def state() -> dict:
-    return get_kv("downloader_state", {"state": "offline"})
