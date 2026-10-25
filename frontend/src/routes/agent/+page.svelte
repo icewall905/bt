@@ -249,6 +249,8 @@
 <style>
 	.agent {
 		display: grid;
+		/* Explicit track: an implicit auto track would size to the log's no-wrap max-content and push the page sideways. */
+		grid-template-columns: minmax(0, 1fr);
 		gap: clamp(1rem, 1.6vw, 1.8rem);
 	}
 	.status {
@@ -452,6 +454,7 @@
 	}
 	.log {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 1rem;
 	}
 	.live-dot {
@@ -469,6 +472,7 @@
 		margin: 0;
 		padding: 0;
 		display: grid;
+		grid-template-columns: minmax(0, 1fr); /* keep rows at panel width so .m can ellipsize */
 		gap: 0.25rem;
 	}
 	.ev {
