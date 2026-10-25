@@ -175,6 +175,16 @@
 		font-size: 0.78rem;
 		font-weight: 700;
 		font-variant-numeric: tabular-nums;
+		transition: bottom 0.25s var(--ease);
+	}
+	/* The hover summary covers the lower thumbnail; lift the badge above it so both stay readable. */
+	:global(html[data-modality='keys']) .hit:focus + .thumb .dur,
+	.hit:hover + .thumb .dur {
+		bottom: calc(100% - 2rem);
+	}
+	:global(html[data-modality='keys']) .hit:focus + .thumb:has(.offline) .dur,
+	.hit:hover + .thumb:has(.offline) .dur {
+		bottom: calc(100% - 3.6rem); /* below the Offline badge */
 	}
 	.prog {
 		position: absolute;

@@ -64,6 +64,13 @@ test('Seen it removes the card and keeps the rest', async ({ page, request }) =>
 	await card.hover();
 	const seenBtn = card.getByRole('button', { name: 'Seen it' });
 	await expect(seenBtn).toHaveCSS('opacity', '1'); // hovering the card reveals them
+	// the duration badge lifts above the hover summary overlay, not over its text
+	const pos = await card.evaluate((el) => {
+		const sum = el.querySelector('.sum') as HTMLElement;
+		const dur = el.querySelector('.dur') as HTMLElement;
+		return { sumTop: sum.getBoundingClientRect().top, durBottom: dur.getBoundingClientRect().bottom };
+	});
+	expect(pos.durBottom).toBeLessThanOrEqual(pos.sumTop + 30); // 30px = overlay's transparent gradient start
 	await seenBtn.click();
 
 	await expect(page.getByRole('link', { name: 'Video the family has seen' })).toHaveCount(0);
