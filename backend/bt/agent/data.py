@@ -1,0 +1,164 @@
+"""DB queries shared by the pipeline steps."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import timedelta
+from typing import Optional
+
+from sqlalchemy import or_
+from sqlmodel import Session, col, func, select
+
+from ..models import Candidate, Category, Feedback, Lesson, ProfileChannel, Video, WatchHistory, now
+from .runtime import aware, parse_ts
+
+BLOCK_TRUST = -0.8
+FOUND_CAP = 12  # max `found` backlog per category
+LOW_WATER = 4  # discover more when pending (found+enriched) drops below this
+
+
+def lessons_for(s: Session, cat: Category, channel_id: Optional[str] = None) -> list[Lesson]:
+    q = select(Lesson).where(Lesson.profile_id == cat.profile_id, Lesson.active == True,  # noqa: E712
+                             or_(col(Lesson.category_id).is_(None), Lesson.category_id == cat.id))
+    out = []
+    for le in s.exec(q.order_by(col(Lesson.weight).desc(), Lesson.id)).all():
+        if le.channel_id and le.channel_id != channel_id and channel_id is not None:
+            continue
+        out.append(le)
+    return out[:40]
+
+
+def trust_for(s: Session, profile_id: int, channel_id: str) -> Optional[float]:
+    pc = s.exec(select(ProfileChannel).where(ProfileChannel.profile_id == profile_id,
+                                             ProfileChannel.channel_id == channel_id)).first()
+    return pc.trust if pc else None
+
+
+@dataclass
+class ProfileCtx:
+    blocked: set = field(default_factory=set)
+    watched: set = field(default_factory=set)
+    disliked: set = field(default_factory=set)
+
+
+def profile_ctx(s: Session, profile_id: int) -> ProfileCtx:
+    pcs = s.exec(select(ProfileChannel).where(ProfileChannel.profile_id == profile_id)).all()
+    return ProfileCtx(
+        blocked={p.channel_id for p in pcs if p.blocked or (p.trust or 0) <= BLOCK_TRUST},
+        watched=set(s.exec(select(WatchHistory.video_id).where(WatchHistory.profile_id == profile_id,
+                                                               WatchHistory.finished == True)).all()),  # noqa: E712
+        disliked=set(s.exec(select(Feedback.video_id).where(Feedback.profile_id == profile_id,
+                                                            Feedback.rating < 0)).all()),
+    )
+
+
+def subscribed_channels(s: Session, profile_id: int) -> list[ProfileChannel]:
+    return list(s.exec(select(ProfileChannel).where(ProfileChannel.profile_id == profile_id,
+                                                    ProfileChannel.subscribed == True,  # noqa: E712
+                                                    ProfileChannel.blocked == False)).all())  # noqa: E712
+
+
+def prefilter(item: dict, cat: Category, ctx: ProfileCtx, hide_shorts: bool,
+              existing: Optional[set] = None) -> Optional[str]:
+    """Return a rejection reason, or None if the entry may proceed. `item` = entry dict or Video.model_dump()."""
+    vid = item.get("id")
+    if not vid:
+        return "no id"
+    if existing is not None and vid in existing:
+        return "already a candidate"
+    if item.get("is_live"):
+        return "live stream"
+    if hide_shorts and item.get("is_short"):
+        return "short"
+    dur = int(item.get("duration_s") or 0)
+    if dur:
+        if cat.min_duration_s and dur < cat.min_duration_s:
+            return f"too short ({dur}s)"
+        if cat.max_duration_s and dur > cat.max_duration_s:
+            return f"too long ({dur}s)"
+    title = (item.get("title") or "").lower()
+    for kw in cat.exclude_keywords or []:
+        if kw and kw.lower() in title:
+            return f"excluded keyword '{kw}'"
+    if item.get("channel_id") and item["channel_id"] in ctx.blocked:
+        return "blocked/distrusted channel"
+    if vid in ctx.disliked:
+        return "disliked before"
+    if vid in ctx.watched:
+        return "already watched"
+    if cat.max_age_days:
+        pub = parse_ts(item.get("published_at"))
+        if pub and pub < now() - timedelta(days=cat.max_age_days):
+            return f"older than {cat.max_age_days} days"
+    return None
+
+
+def candidate_ids(s: Session, cat_id: int) -> set[str]:
+    return set(s.exec(select(Candidate.video_id).where(Candidate.category_id == cat_id)).all())
+
+
+def status_counts(s: Session, cat_id: int) -> dict:
+    rows = s.exec(select(Candidate.status, func.count()).where(Candidate.category_id == cat_id)
+                  .group_by(Candidate.status)).all()
+    return {st: n for st, n in rows}
+
+
+def accepted_unwatched(s: Session, cat: Category) -> int:
+    watched = set(s.exec(select(WatchHistory.video_id).where(WatchHistory.profile_id == cat.profile_id,
+                                                             WatchHistory.finished == True)).all())  # noqa: E712
+    vids = s.exec(select(Candidate.video_id).where(Candidate.category_id == cat.id, Candidate.status == "accepted",
+                                                   Candidate.dismissed == False)).all()  # noqa: E712
+    return sum(1 for v in vids if v not in watched)
+
+
+@dataclass
+class Need:
+    cat: Category
+    deficit: int
+    weight: float
+    counts: dict
+
+
+def category_needs(s: Session, focus_id: Optional[int] = None) -> list[Need]:
+    """Enabled categories (all profiles) with a queue deficit, neediest first.
+
+    weight = priority × deficit, boosted by time since last worked (so categories rotate)."""
+    out = []
+    t = now()
+    for cat in s.exec(select(Category).where(Category.enabled == True)).all():  # noqa: E712
+        deficit = (cat.target_queue or 0) - accepted_unwatched(s, cat)
+        if deficit <= 0 and cat.id != focus_id:
+            continue
+        last = aware(cat.last_worked_at)
+        idle_h = 24.0 if last is None else min(24.0, (t - last).total_seconds() / 3600)
+        weight = max(1, cat.priority or 1) * max(deficit, 1) * (1 + idle_h)
+        if cat.id == focus_id:
+            weight = float("inf")
+        out.append(Need(cat, deficit, weight, status_counts(s, cat.id)))
+    out.sort(key=lambda n: (-n.weight, aware(n.cat.last_worked_at) or t - timedelta(days=3650)))
+    return out
+
+
+def recent_titles(s: Session, cat_id: int, status: str, n: int = 8) -> list[str]:
+    rows = s.exec(select(Video.title).join(Candidate, Candidate.video_id == Video.id)
+                  .where(Candidate.category_id == cat_id, Candidate.status == status)
+                  .order_by(col(Candidate.judged_at).desc()).limit(n)).all()
+    return [t for t in rows if t]
+
+
+def recent_dislikes(s: Session, profile_id: int, n: int = 8) -> list[str]:
+    rows = s.exec(select(Feedback, Video).join(Video, Video.id == Feedback.video_id, isouter=True)
+                  .where(Feedback.profile_id == profile_id, Feedback.rating < 0)
+                  .order_by(col(Feedback.created_at).desc()).limit(n)).all()
+    out = []
+    for f, v in rows:
+        why = ", ".join(f.chips or []) + (f" — {f.text}" if f.text else "")
+        out.append(f"{v.title if v else f.video_id}" + (f" ({why})" if why else ""))
+    return out
+
+
+def touch_category(s: Session, cat_id: int) -> None:
+    c = s.get(Category, cat_id)
+    if c:
+        c.last_worked_at = now()
+        s.add(c)
+        s.commit()

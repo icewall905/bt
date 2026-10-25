@@ -1,0 +1,92 @@
+#!/bin/bash
+# BetterTube projector mode: Chromium app window, fullscreen, remote-control friendly.
+# Bound to remote button 6 (input-remapper -> Ctrl+Shift+Y -> xbindkeys).
+
+if [ "$(id -un)" = "root" ]; then
+  exec runuser -u console -- env \
+    HOME=/home/console \
+    USER=console \
+    LOGNAME=console \
+    XDG_RUNTIME_DIR=/run/user/1000 \
+    DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \
+    "$0" "$@"
+fi
+
+# Local URL avoids a hairpin through the rproxy; same app as https://bt.tdgs.org
+BT_URL="${BT_URL:-http://localhost:6645}"
+LOG_FILE="${HOME}/.local/share/bt-mode.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+
+echo "Switching to BetterTube mode…"
+printf '\n[%s] === BetterTube mode ===\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG_FILE"
+
+(
+  source /home/console/bin/mode-common.sh
+  log() { printf '[%s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
+
+  mode_set_display
+  mode_display_1080p60
+  sudo podman stop -t 2 smarttube >/dev/null 2>&1 &
+
+  # Kill competitors — all in parallel
+  pkill -f kodi        2>/dev/null &
+  pkill -f vacuumtube  2>/dev/null &
+  flatpak kill rocks.shy.VacuumTube          2>/dev/null &
+  pkill -f youtube-tv-profile 2>/dev/null &
+  pkill -f steam       2>/dev/null &
+  pkill -f jellyfinmediaplayer               2>/dev/null &
+  flatpak kill org.jellyfin.JellyfinDesktop  2>/dev/null &
+  flatpak kill tv.plex.PlexDesktop           2>/dev/null &
+  flatpak kill tv.plex.PlexHTPC             2>/dev/null &
+  pkill -f bt-app      2>/dev/null &
+
+  sudo /usr/local/bin/audio-handoff.sh ensure apps &
+  systemctl is-active --quiet docker || sudo systemctl start docker &
+  ( sudo /usr/local/bin/steam-mode-docker.sh start; sudo /usr/local/bin/steam-mode-docker.sh ensure ) &>/dev/null &
+
+  mode_force_hdmi_surround
+  mode_force_media_sink
+
+  {
+    systemctl is-active --quiet input-remapper-daemon || \
+      sudo systemctl start input-remapper-daemon 2>/dev/null
+    busctl call inputremapper.Control /inputremapper/Control \
+      inputremapper.Control set_config_dir s /home/console/.config/input-remapper-2 2>/dev/null || true
+    busctl call inputremapper.Control /inputremapper/Control \
+      inputremapper.Control autoload 2>/dev/null || true
+  } &
+
+  sleep 0.3  # let kills propagate
+
+  log "Launching BetterTube ($BT_URL)…"
+  # NVIDIA drives X; pin GL/EGL/Vulkan to it (see vacuumtube-mode notes).
+  __GLX_VENDOR_LIBRARY_NAME=nvidia \
+  __EGL_VENDOR_LIBRARY_FILENAMES=/usr/lib/x86_64-linux-gnu/GL/glvnd/egl_vendor.d/10_nvidia.json \
+  chromium \
+    --class=bt-app \
+    --user-data-dir="$HOME/.config/bt-app" \
+    --app="$BT_URL" \
+    --start-fullscreen --kiosk \
+    --autoplay-policy=no-user-gesture-required \
+    --ignore-gpu-blocklist \
+    --no-first-run --noerrdialogs --disable-session-crashed-bubble \
+    --disable-features=Translate,MediaRouter \
+    >/dev/null 2>&1 &
+
+  log "Waiting for BetterTube window…"
+  for _ in $(seq 25); do
+    sleep 0.4
+    wid=$(xdotool search --class "bt-app" 2>/dev/null | tail -1) || true
+    if [ -n "$wid" ]; then
+      xdotool windowraise "$wid" windowactivate "$wid" 2>/dev/null || true
+      wmctrl -i -r "$wid" -b add,fullscreen 2>/dev/null || true
+      log "Window focused and fullscreened (id=$wid)"
+      pactl list short sink-inputs 2>/dev/null | awk '{ print $1 }' | \
+        while read -r sid; do pactl set-sink-input-mute "$sid" 0 2>/dev/null || true; done
+      break
+    fi
+  done
+
+  log "Done"
+) >> "$LOG_FILE" 2>&1 &
+disown

@@ -1,0 +1,35 @@
+name: bt
+
+x-bt: &bt
+  build: .
+  image: bettertube:latest
+  restart: unless-stopped
+  env_file: .env
+  volumes:
+    - ./data:/data
+  depends_on:
+    - pot
+
+services:
+  bt-api:
+    <<: *bt
+    container_name: bt-api
+    ports:
+      - "6645:6645"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:6645/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  bt-worker:
+    <<: *bt
+    container_name: bt-worker
+    command: ["python", "-m", "bt.agent"]
+    stop_grace_period: 20s
+
+  pot:
+    image: brainicism/bgutil-ytdlp-pot-provider:2.0.2-deno
+    container_name: bt-pot
+    restart: unless-stopped
+    init: true
