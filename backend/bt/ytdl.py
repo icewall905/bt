@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import socket
 import threading
 import time
 import urllib.parse as up
@@ -28,14 +29,113 @@ SHORT_MAX_S = 60
 _PROXY_SCHEMES = ("http", "https", "socks4", "socks5", "socks5h")
 
 
-def yt_proxy() -> str:
-    """The `throttle.proxy` setting ("" = direct). Read live so Settings edits apply at once;
-    values without a known scheme are ignored with a warning (yt-dlp would fail every request)."""
+def _raw_proxy() -> str:
+    """The `throttle.proxy` setting, validated ("" = direct)."""
     raw = str((get_settings().get("throttle") or {}).get("proxy") or "").strip()
     if raw and not re.match(r"(https?|socks[45]h?)://", raw):
         log.warning("ignoring invalid proxy setting %r (expected http(s):// or socks[45]:// URL)", raw)
         return ""
     return raw
+
+
+def _install_socks_rdns_patch() -> bool:
+    """Force local DNS in yt-dlp's SOCKS layer (rdns=False).
+
+    Some SOCKS proxies cannot resolve hostnames themselves — PIA's SOCKS5 answers
+    0x04 "Host unreachable" for any hostname. yt-dlp rewrites socks5:// to socks5h://
+    ("compat: socks5 was treated as socks5h"), which sends hostnames to the proxy.
+    Patching sockssocket.setproxy resolves targets locally and sends IPv4s instead.
+    Best effort: if upstream renames things we log and the proxy may misbehave.
+    """
+    try:
+        from yt_dlp.socks import sockssocket
+        orig = sockssocket.setproxy
+    except Exception as e:
+        log.warning("socks rdns patch unavailable (%s)", e)
+        return False
+    if getattr(orig, "_bt_patched", False):
+        return True
+
+    def patched(self, proxytype, addr, port, rdns=True, username=None, password=None):
+        return orig(self, proxytype, addr, port, rdns=False, username=username, password=password)
+
+    patched._bt_patched = True  # type: ignore[attr-defined]
+    sockssocket.setproxy = patched
+    return True
+
+
+SOCKS_RDNS_PATCH = _install_socks_rdns_patch()
+
+
+# ---------------------------------------------------------------- socks backend pinning
+# A socks hostname may be a pool of backends and some pools contain backends that
+# reject valid credentials (PIA: 5 of 30). Resolve, probe briefly and pin a working
+# IPv4; PIA's own docs recommend pinning an IP and re-resolving when it breaks.
+
+_PIN_TTL_S = 30 * 60
+_pin_lock = threading.Lock()
+_pin_cache: dict[str, tuple[float, str]] = {}
+
+
+def _socks_probe(ip: str, p, timeout: float = 4.0) -> bool:
+    try:
+        import socks as pys  # PySocks
+    except ImportError:
+        return False
+    s = pys.socksocket()
+    s.settimeout(timeout)
+    s.set_proxy(pys.SOCKS5, ip, p.port or 1080, rdns=False, username=p.username, password=p.password)
+    try:
+        s.connect(("8.8.8.8", 443))
+        return True
+    except OSError:
+        return False
+    finally:
+        try:
+            s.close()
+        except OSError:
+            pass
+
+
+def _is_ip(host: str | None) -> bool:
+    try:
+        socket.inet_aton(host or "")
+        return True
+    except OSError:
+        return False
+
+
+def pinned_proxy_url(url: str) -> str:
+    """Rewrite a socks*:// URL so its host is a working IPv4 backend (cached). Non-socks
+    URLs, IP hosts and unresolvable/unreachable hosts are returned unchanged."""
+    if not url or not up.urlparse(url).scheme.startswith("socks"):
+        return url
+    p = up.urlparse(url)
+    if _is_ip(p.hostname):
+        return url
+    with _pin_lock:
+        hit = _pin_cache.get(url)
+        if hit and time.time() < hit[0]:
+            return hit[1]
+    try:
+        ips = sorted({x[4][0] for x in socket.getaddrinfo(p.hostname, p.port or 1080, socket.AF_INET)})
+    except OSError as e:
+        log.warning("proxy host %r does not resolve: %s", p.hostname, e)
+        return url
+    out = url
+    for ip in ips[:12]:
+        if _socks_probe(ip, p):
+            out = up.urlunparse(p._replace(netloc=f"{ip}:{p.port or 1080}"))
+            break
+    with _pin_lock:
+        _pin_cache[url] = (time.time() + _PIN_TTL_S, out)
+    return out
+
+
+def yt_proxy() -> str:
+    """The `throttle.proxy` setting, validated and (for socks) pinned to a working backend.
+    Read live so Settings edits apply at once; "" = direct."""
+    return pinned_proxy_url(_raw_proxy())
 
 
 class YtError(Exception):

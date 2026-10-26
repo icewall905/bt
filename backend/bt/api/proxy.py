@@ -2,8 +2,8 @@
 
 The stored setting remains a single URL (`throttle.proxy`, read by `ytdl.yt_proxy`); the catalog
 only tells the frontend how to build that URL for supported providers. The test endpoint fetches
-one channel RSS feed through the given URL so the user sees whether the proxy actually works
-before saving it.
+one channel RSS feed through the given URL — using the same code path as the app itself (local
+DNS + SOCKS when needed) — so the user sees whether the proxy actually works before saving it.
 """
 from __future__ import annotations
 
@@ -13,13 +13,16 @@ import urllib.parse as up
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from sqlmodel import select
 
-from ..db import log_yt_request
+from .. import netfetch
+from ..db import log_yt_request, session
+from ..models import ProfileChannel
 
 router = APIRouter()
 
-FEED_CHANNEL = "UCBR8-60-B28hp2BmLPdYCiA"  # YouTube's own channel: stable, always serves RSS
-UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36"
+FALLBACK_CHANNEL = "UCXuqSBlHAE6Xw-yeJA0Tunw"  # Linus Tech Tips: stable, always has uploads
+FEED_URL = "https://www.youtube.com/feeds/videos.xml"
 
 PROXY_PROVIDERS: list[dict] = [
     {
@@ -54,6 +57,12 @@ class ProxyTestBody(BaseModel):
     url: str = ""
 
 
+def _test_channel() -> str:
+    with session() as s:
+        row = s.exec(select(ProfileChannel).where(ProfileChannel.subscribed).limit(1)).first()
+    return row.channel_id if row else FALLBACK_CHANNEL
+
+
 def _err_hint(e: Exception) -> str:
     if isinstance(e, httpx.ProxyError):
         return "The proxy refused the connection — check the username/password and the address."
@@ -74,8 +83,8 @@ def proxy_test(body: ProxyTestBody) -> dict:
         raise HTTPException(400, f"unsupported scheme {scheme!r} — use http, https, socks4 or socks5")
     t = time.monotonic()
     try:
-        r = httpx.get(f"https://www.youtube.com/feeds/videos.xml?channel_id={FEED_CHANNEL}",
-                      headers={"User-Agent": UA}, timeout=20, follow_redirects=True, proxy=url)
+        r = netfetch.get(FEED_URL, params={"channel_id": _test_channel()},
+                         headers={"User-Agent": "Mozilla/5.0"}, timeout=25, follow_redirects=True, proxy=url)
     except httpx.HTTPError as e:
         log_yt_request("proxy_test", "user", False, f"proxy test: {type(e).__name__}: {str(e)[:200]}")
         return {"ok": False, "error": str(e)[:300], "hint": _err_hint(e)}

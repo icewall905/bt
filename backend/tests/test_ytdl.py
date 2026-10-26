@@ -58,6 +58,26 @@ def test_proxy_setting_without_scheme_is_ignored():
     save_setting("throttle", {"proxy": ""})
 
 
+def test_socks_rdns_patch_installed():
+    # PIA's SOCKS5 cannot resolve hostnames: without local DNS every request fails with 0x04
+    assert ytdl.SOCKS_RDNS_PATCH is True
+    from yt_dlp.socks import sockssocket
+    s = sockssocket()
+    s.setproxy(1, "127.0.0.1", 1080, rdns=True)  # type: ignore[arg-type]
+    assert s._proxy.remote_dns is False
+
+
+def test_pinned_proxy_url_leaves_http_and_ip_hosts_alone():
+    assert ytdl.pinned_proxy_url("http://gluetun:8888") == "http://gluetun:8888"
+    assert ytdl.pinned_proxy_url("socks5://u:p@127.0.0.1:1080") == "socks5://u:p@127.0.0.1:1080"
+    assert ytdl.pinned_proxy_url("") == ""
+
+
+def test_pinned_proxy_url_unresolvable_host_unchanged():
+    url = "socks5://u:p@no-such-host.invalid:1080"
+    assert ytdl.pinned_proxy_url(url) == url
+
+
 JSON3 = json.dumps({"events": [
     {"tStartMs": 0, "dDurationMs": 1000},  # window event without segs
     {"tStartMs": 100, "dDurationMs": 2000, "segs": [{"utf8": "hello "}, {"utf8": "world"}]},

@@ -13,8 +13,8 @@ from pathlib import Path
 
 import httpx
 
+from . import netfetch
 from .config import DATA_DIR
-from .ytdl import yt_proxy
 
 log = logging.getLogger("bt.extras")
 
@@ -159,19 +159,21 @@ def image_host_allowed(url: str) -> bool:
 
 
 async def _fetch_image(url: str) -> bytes | None:
-    """GET an image, following redirects only to allowed image hosts."""
-    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=4.0), follow_redirects=False,
-                                 headers={"User-Agent": UA}, proxy=yt_proxy() or None) as c:
-        for _ in range(5):
-            if not image_host_allowed(url):
-                return None
-            r = await c.get(url)
-            if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
-                url = up.urljoin(url, r.headers["location"])
-                continue
-            if r.status_code != 200 or not r.headers.get("content-type", "").startswith("image/"):
-                return None
-            return r.content
+    """GET an image, following redirects only to allowed image hosts (through the proxy if set)."""
+    for _ in range(5):
+        if not image_host_allowed(url):
+            return None
+        try:
+            r = await netfetch.aget(url, headers={"User-Agent": UA}, timeout=httpx.Timeout(10.0, connect=4.0))
+        except httpx.HTTPError as e:
+            log.info("image %s: %s", url, e)
+            return None
+        if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
+            url = up.urljoin(url, r.headers["location"])
+            continue
+        if r.status_code != 200 or not r.headers.get("content-type", "").startswith("image/"):
+            return None
+        return r.content
     return None
 
 
