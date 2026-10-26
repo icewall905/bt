@@ -29,7 +29,7 @@
 
 	function dropFromRows(pred: (v: Video) => boolean) {
 		rows = (rows ?? []).map((r) =>
-			r.kind === 'category' ? { ...r, items: r.items.filter((it) => !it.video || !pred(it.video)) } : r);
+			r.kind === 'subscriptions' ? r : { ...r, items: r.items.filter((it) => !it.video || !pred(it.video)) });
 	}
 
 	async function markSeen(v: Video) {
@@ -169,13 +169,29 @@
 			<Row title={row.title} emoji={row.emoji} color="var(--accent)">
 				{#each row.items as it, i}
 					{#if it.video}
+						{@const v = it.video}
 						<VideoCard
-							video={it.video}
+							video={v}
 							group="row-continue"
-							id="cw-{it.video.id}"
-							href="/watch/{it.video.id}{it.category_id ? `?c=${it.category_id}` : ''}"
-							progress={it.video.duration_s ? (it.position_s ?? 0) / it.video.duration_s : 0}
-						/>
+							id="cw-{v.id}"
+							href="/watch/{v.id}{it.category_id ? `?c=${it.category_id}` : ''}"
+							progress={v.duration_s ? (it.position_s ?? 0) / v.duration_s : 0}
+						>
+							{#snippet actions()}
+								<OfflineButton videoId={v.id} offline={!!v.offline} group="cw-acts-{v.id}" />
+								<button class="btn why" use:focusable={{ group: `cw-acts-${v.id}`, onSelect: () => markSeen(v) }}>
+									Seen it
+								</button>
+								<button class="btn why" use:focusable={{ group: `cw-acts-${v.id}`, onSelect: () => boring(v, it.category_id ?? undefined) }}>
+									Boring
+								</button>
+								{#if v.channel_id}
+									<button class="btn why" use:focusable={{ group: `cw-acts-${v.id}`, onSelect: () => dislikeChannel(v) }}>
+										Don't like channel
+									</button>
+								{/if}
+							{/snippet}
+						</VideoCard>
 					{/if}
 				{/each}
 			</Row>
