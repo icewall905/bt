@@ -36,4 +36,9 @@ test('proxy helper composes a URL and reports an unreachable proxy', async ({ pa
 
 	const st = await (await page.request.get('/api/settings')).json();
 	expect(st.throttle.proxy).toBe('********');
+
+	// Saving must clear the dirty flag: the bar goes back to "All changes saved".
+	await expect(
+		page.locator('section', { hasText: 'Pace and limits' }).locator('.savebar')
+	).toContainText('All changes saved.', { timeout: 5000 });
 });

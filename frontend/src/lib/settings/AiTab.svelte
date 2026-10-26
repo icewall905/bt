@@ -99,13 +99,17 @@
 
 	parseProxy(th.value.proxy ?? '');
 
-	$effect(() => {
+	/** Write the composed URL into the throttle draft (call on every proxy field change).
+	 * No $effect: it would also run after save() restores the masked value from the response
+	 * and immediately overwrite it with the unmasked URL, keeping the bar dirty forever. */
+	function syncDraft() {
 		th.value.proxy = composeProxy();
-	});
+	}
 
 	function pickProvider(p: string) {
 		px.provider = p;
 		if (p === 'local' && !px.port) px.port = '8000';
+		syncDraft();
 	}
 
 	let proxyTesting = $state(false);
@@ -220,18 +224,18 @@
 		{/if}
 		{#if px.provider === 'pia'}
 			<div class="two">
-				<TextField label="SOCKS5 username" bind:value={px.user} placeholder="generated in the panel" group="px" />
-				<TextField label="SOCKS5 password" hint="Not your PIA login — generate these under Downloads → VPN Settings → SOCKS." type="password" bind:value={px.pass} group="px" />
+				<TextField label="SOCKS5 username" bind:value={px.user} placeholder="generated in the panel" group="px" oninput={syncDraft} />
+				<TextField label="SOCKS5 password" hint="Not your PIA login — generate these under Downloads → VPN Settings → SOCKS." type="password" bind:value={px.pass} group="px" oninput={syncDraft} />
 			</div>
 			<p class="small muted">The proxy exits in the Netherlands (PIA's only SOCKS5 location).</p>
 		{:else if px.provider === 'local'}
 			<div class="two">
-				<Select label="Type" bind:value={px.scheme} group="px" options={[{ value: 'http', label: 'HTTP' }, { value: 'socks5', label: 'SOCKS5' }]} />
-				<TextField label="Host" hint="On this server's network, e.g. the gluetun container." bind:value={px.host} placeholder="gluetun" group="px" />
-				<TextField label="Port" bind:value={px.port} placeholder="8000" group="px" />
+				<Select label="Type" bind:value={px.scheme} group="px" onchange={syncDraft} options={[{ value: 'http', label: 'HTTP' }, { value: 'socks5', label: 'SOCKS5' }]} />
+				<TextField label="Host" hint="On this server's network, e.g. the gluetun container." bind:value={px.host} placeholder="gluetun" group="px" oninput={syncDraft} />
+				<TextField label="Port" bind:value={px.port} placeholder="8000" group="px" oninput={syncDraft} />
 			</div>
 		{:else if px.provider === 'custom'}
-			<TextField label="Proxy URL" hint="Any http(s) or socks5 URL. Saved credentials are never shown again." bind:value={px.custom} type="password" placeholder="socks5://user:pass@host:1080" group="px" />
+			<TextField label="Proxy URL" hint="Any http(s) or socks5 URL. Saved credentials are never shown again." bind:value={px.custom} type="password" placeholder="socks5://user:pass@host:1080" group="px" oninput={syncDraft} />
 		{:else}
 			<p class="small muted">All YouTube requests go straight out from this server. That is the default and works fine at these request rates.</p>
 		{/if}
