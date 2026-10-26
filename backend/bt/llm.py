@@ -212,14 +212,21 @@ def _sleep(seconds: float, abort: Callable[[], None] | None) -> None:
 
 
 def _request(messages, json_schema, max_tokens, images, temperature, schema_name, abort=None,
-             no_think: bool = False) -> str:
+             no_think: bool = False, timeout_s: float | None = None,
+             reasoning_effort: str | None = None) -> str:
     if abort:
         abort()
-    cfg = _cfg()
+    cfg = dict(_cfg())
+    if timeout_s is not None:
+        cfg["timeout_s"] = timeout_s
     body: dict = {"model": cfg["model"], "messages": _with_images(messages, images), "max_tokens": max_tokens,
                   "temperature": cfg.get("temperature", 0.4) if temperature is None else temperature}
-    if no_think or cfg.get("thinking") is False:
+    if reasoning_effort is not None:
+        body["reasoning_effort"] = reasoning_effort
+    if no_think or (reasoning_effort is None and cfg.get("thinking") is False):
         body["chat_template_kwargs"] = {"enable_thinking": False}
+    elif reasoning_effort is not None:
+        body["chat_template_kwargs"] = {"enable_thinking": True}
     base = cfg["base_url"]
     use_schema = json_schema is not None and base not in _schema_unsupported
     if use_schema:
@@ -233,6 +240,9 @@ def _request(messages, json_schema, max_tokens, images, temperature, schema_name
         if abort:
             abort()
         r = _post(cfg, body, abort)
+    if r.status_code >= 400 and json_schema is not None and re.search(
+            r"finish_reason\s*[=:]\s*length|increase the output budget", r.text or "", re.I):
+        raise LlmTruncated("server reported truncated structured output")
     if r.status_code >= 400:
         raise LlmError(f"HTTP {r.status_code}: {r.text[:300]}")
     data = r.json()
@@ -258,7 +268,7 @@ def _attempts(retries: int | None) -> int:
 
 
 def _loop(fn, attempts: int, max_tokens: int, abort):
-    """Shared retry loop. On truncation, retry with thinking disabled and a larger token budget."""
+    """Shared retry loop. Truncation increases the budget and requests a thinking fallback."""
     last: Exception | None = None
     no_think = False
     for i in range(attempts):
@@ -266,13 +276,15 @@ def _loop(fn, attempts: int, max_tokens: int, abort):
             return fn(max_tokens, no_think)
         except LlmTruncated as e:
             last = e
-            log.warning("LLM truncated (attempt %d/%d): %s — retrying without thinking", i + 1, attempts, e)
+            log.warning("LLM truncated (attempt %d/%d): %s — increasing output budget", i + 1, attempts, e)
             no_think, max_tokens = True, int(max_tokens * 1.5)
         except (httpx.HTTPError, LlmError, ValueError) as e:
             last = e
             log.warning("LLM call failed (attempt %d/%d): %s", i + 1, attempts, e)
             if i + 1 < attempts:
                 _sleep(min(2 ** i, 10), abort)
+    if isinstance(last, LlmTruncated):
+        raise last
     raise LlmError(str(last))
 
 
@@ -290,7 +302,9 @@ def chat(messages: list[dict], json_schema: dict | None = None, max_tokens: int 
 
 def chat_json(messages: list[dict], json_schema: dict | None = None, max_tokens: int = 1024,
               images: list[str] | None = None, temperature: float | None = None, schema_name: str = "result",
-              retries: int | None = None, abort: Callable[[], None] | None = None) -> dict:
+              retries: int | None = None, abort: Callable[[], None] | None = None,
+              timeout_s: float | None = None, no_think: bool = False,
+              reasoning_effort: str | None = None) -> dict:
     """Like chat() but returns a parsed dict; parse failures count as a failed attempt."""
     msgs = messages
     if json_schema is not None:
@@ -303,5 +317,5 @@ def chat_json(messages: list[dict], json_schema: dict | None = None, max_tokens:
         else:
             msgs.insert(0, {"role": "system", "content": hint})
     return _loop(lambda mt, nt: parse_json(_request(msgs, json_schema, mt, images, temperature, schema_name,
-                                                    abort, nt)),
+                                                    abort, no_think or (nt and reasoning_effort is None), timeout_s, reasoning_effort)),
                  _attempts(retries), max_tokens, abort)

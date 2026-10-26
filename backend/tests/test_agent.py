@@ -959,3 +959,33 @@ def test_no_thumbnail_during_backoff():
     w.rt.backoff_until = now() + timedelta(hours=1)
     assert judge.judge_one(w.rt, c) == "accepted"
     assert fl.calls[-1]["images"] is None
+
+
+def test_structured_output_http_truncation_increases_budget(monkeypatch):
+    sent = []
+    configs = []
+    original = dict(llm._cfg())
+
+    def fake_post(cfg, body, abort=None):
+        configs.append(dict(cfg))
+        sent.append(dict(body))
+        if len(sent) == 1:
+            return httpx.Response(502, json={'error': {
+                'type': 'structured_output_failed',
+                'message': 'structured output was incomplete (finish_reason=length); increase the output budget'
+            }})
+        return httpx.Response(200, json={'choices': [
+            {'message': {'content': '{"brief":"Science", "seed_queries":["experiments"]}'},
+             'finish_reason': 'stop'}]})
+
+    monkeypatch.setattr(llm, '_post', fake_post)
+    result = llm.chat_json([{'role': 'user', 'content': 'examples'}],
+                           json_schema={'type': 'object'}, max_tokens=32768,
+                           timeout_s=600, reasoning_effort='medium')
+    assert result['brief'] == 'Science'
+    assert [b['max_tokens'] for b in sent] == [32768, 49152]
+    assert sent[0]['chat_template_kwargs'] == {'enable_thinking': True}
+    assert sent[1]['chat_template_kwargs'] == {'enable_thinking': True}
+    assert all(b['reasoning_effort'] == 'medium' for b in sent)
+    assert all(c['timeout_s'] == 600 for c in configs)
+    assert llm._cfg() == original  # Import-specific timeout does not change worker settings.
