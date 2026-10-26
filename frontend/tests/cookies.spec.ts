@@ -31,4 +31,10 @@ test('cookies tab validates the uploaded session', async ({ page }) => {
 	const result = page.locator('.result');
 	await expect(result).toBeVisible({ timeout: 90_000 });
 	await expect(result).toContainText('✕');
+
+	// The import section appears with cookies installed, with both actions reachable.
+	await expect(page.getByRole('heading', { name: 'Import from your YouTube account' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Import subscriptions' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Import into category' })).toBeVisible();
+	await expect(page.locator('button.select').filter({ hasText: 'Into category' })).toBeVisible();
 });

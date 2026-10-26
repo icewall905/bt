@@ -3,9 +3,11 @@
 	import { session } from '$lib/stores/session.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { focusable } from '$lib/nav';
-	import type { CookieTestResult } from '$lib/types';
+	import type { CookieTestResult, ImportFeedResult, ImportSubscriptionsResult } from '$lib/types';
 	import Section from './Section.svelte';
 	import TextField from '$lib/components/form/TextField.svelte';
+	import Select from '$lib/components/form/Select.svelte';
+	import Stepper from '$lib/components/form/Stepper.svelte';
 
 	let text = $state('');
 	let busy = $state(false);
@@ -13,6 +15,62 @@
 	let result = $state<CookieTestResult | null>(null);
 	let fileInput = $state<HTMLInputElement>();
 	const present = $derived(!!session.settings?.cookies?.present);
+
+	// ---- import from the signed-in account
+	const FEED_SOURCES = [
+		{ value: 'recommended', label: 'Recommended feed' },
+		{ value: 'watchlater', label: 'Watch later' },
+		{ value: 'liked', label: 'Liked videos' },
+		{ value: 'playlist', label: 'Playlist URL' }
+	];
+	let source = $state('recommended');
+	let playlistUrl = $state('');
+	let categoryId = $state(0);
+	let limit = $state(50);
+	let subsBusy = $state(false);
+	let feedBusy = $state(false);
+	let subsResult = $state<ImportSubscriptionsResult | null>(null);
+	let feedResult = $state<ImportFeedResult | null>(null);
+	let importError = $state('');
+	const categories = $derived((session.categories ?? []).filter((c) => c.enabled));
+	const chosenCategory = $derived(categories.find((c) => c.id === categoryId) ?? null);
+	$effect(() => {
+		if (!chosenCategory && categories.length) categoryId = categories[0].id; // sensible default
+	});
+
+	async function importSubs() {
+		subsBusy = true;
+		subsResult = null;
+		importError = '';
+		try {
+			subsResult = await api.importSubscriptions();
+			toast.success(`Following ${subsResult.imported} new channels.`);
+		} catch (e) {
+			importError = (e as Error).message;
+		} finally {
+			subsBusy = false;
+		}
+	}
+
+	async function importFromFeed() {
+		if (!chosenCategory) return toast.warn('Pick a category to import into.');
+		feedBusy = true;
+		feedResult = null;
+		importError = '';
+		try {
+			feedResult = await api.importFeed({
+				category_id: chosenCategory.id,
+				source,
+				playlist_url: source === 'playlist' ? playlistUrl : undefined,
+				limit
+			});
+			toast.success(`Added ${feedResult.added} videos to ${feedResult.category}.`);
+		} catch (e) {
+			importError = (e as Error).message;
+		} finally {
+			feedBusy = false;
+		}
+	}
 
 	async function check() {
 		checking = true;
@@ -88,6 +146,65 @@
 	<div><button class="btn primary big" disabled={busy} use:focusable={{ group: 'ck-save', onSelect: upload }}>{present ? 'Replace cookies' : 'Install cookies'}</button></div>
 </Section>
 
+{#if present}
+	<div class="gap"></div>
+
+	<Section title="Import from your YouTube account" intro="Bring the taste you already have into {session.profile?.name ?? 'this profile'}. Uses the cookie session above; imports are added as pending picks for the AI to read and judge, not straight to the feeds.">
+		<div class="panel import">
+			<div>
+				<strong>Subscriptions</strong>
+				<p class="small muted">Follow every channel this account follows, in this profile. The curator then watches their new uploads.</p>
+			</div>
+			<button class="btn" disabled={subsBusy} use:focusable={{ group: 'ck-imp', id: 'ck-imp-subs', onSelect: importSubs }}>
+				{#if subsBusy}Importing…{:else}Import subscriptions{/if}
+			</button>
+		</div>
+		{#if subsResult}
+			<p class="small {subsResult.imported ? 'good' : 'muted'}">
+				Following {subsResult.imported} new channel{subsResult.imported === 1 ? '' : 's'}
+				({subsResult.already_known} already known).
+			</p>
+		{/if}
+
+		<div class="panel import">
+			<div>
+				<strong>Feed or playlist → category</strong>
+				<p class="small muted">Recommended feed, Watch later, Liked videos, or any playlist. Videos land in the category's inbox; the AI judges each one against the brief. The inbox holds 12 at a time — import again once it drains.</p>
+			</div>
+		</div>
+		<div class="feedgrid">
+			<Select label="Source" bind:value={source} group="ck-imp" options={FEED_SOURCES} />
+			{#if source === 'playlist'}
+				<TextField label="Playlist URL" bind:value={playlistUrl} placeholder="https://www.youtube.com/playlist?list=PL…" group="ck-imp" />
+			{/if}
+			<Select
+				label="Into category"
+				bind:value={categoryId}
+				group="ck-imp"
+				options={categories.map((c) => ({ value: c.id, label: `${c.emoji} ${c.name}` }))}
+			/>
+			<Stepper label="Max videos" bind:value={limit} min={10} max={200} step={10} />
+			<button class="btn primary" disabled={feedBusy} use:focusable={{ group: 'ck-imp', id: 'ck-imp-feed', onSelect: importFromFeed }}>
+				{#if feedBusy}Importing…{:else}Import into category{/if}
+			</button>
+		</div>
+		{#if !categories.length}
+			<p class="small muted">Create a category first (Settings → Categories).</p>
+		{/if}
+		{#if feedResult}
+			<div class="result panel ok">
+				<p><strong>Added {feedResult.added} of {feedResult.found} videos to {feedResult.category}.</strong> The curator will read and judge them next.</p>
+				{#if feedResult.skipped}
+					<p class="small muted">Skipped {feedResult.skipped}: {Object.entries(feedResult.skip_reasons).map(([k, v]) => `${k} (${v})`).join(', ')}</p>
+				{/if}
+			</div>
+		{/if}
+		{#if importError}
+			<p class="small bad-import">{importError}</p>
+		{/if}
+	</Section>
+{/if}
+
 <style>
 	.state {
 		display: flex;
@@ -137,5 +254,28 @@
 	}
 	.file-input {
 		display: none;
+	}
+	.gap {
+		height: 2.4rem;
+	}
+	.import {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+		padding: 0.9rem 1.1rem;
+	}
+	.feedgrid {
+		display: grid;
+		gap: 0.9rem;
+		grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+		align-items: end;
+	}
+	.good {
+		color: var(--ok);
+	}
+	.bad-import {
+		color: var(--bad);
 	}
 </style>

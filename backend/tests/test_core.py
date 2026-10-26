@@ -301,6 +301,56 @@ def test_cookies_test_without_cookies():
     assert c.post("/api/cookies/test").json() == {"present": False, "logged_in": False}
 
 
+def test_ytimport_requires_cookies_and_valid_body(tmp_path):
+    c = client()
+    assert c.post("/api/ytimport/subscriptions").status_code == 400
+    assert c.post("/api/ytimport/feed", json={"category_id": 1, "source": "recommended"}).status_code == 400
+    # a dummy cookies file passes the presence check; the feed body still validates
+    from bt.config import COOKIES_PATH
+    COOKIES_PATH.write_text("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t1\tk\tv")
+    try:
+        profiles = c.get("/api/profiles").json()
+        h = {"X-Profile-Id": str(profiles[0]["id"])}
+        cat = c.post("/api/categories", json={"name": "Import", "brief": "test"}, headers=h).json()
+        assert c.post("/api/ytimport/feed", json={"category_id": cat["id"], "source": "nope"},
+                      headers=h).status_code == 400
+        assert c.post("/api/ytimport/feed", json={"category_id": cat["id"], "source": "playlist",
+                                                 "playlist_url": "https://example.com/x"},
+                      headers=h).status_code == 400
+        assert c.post("/api/ytimport/feed", json={"category_id": 999999, "source": "liked"},
+                      headers=h).status_code == 404
+        # a category of another profile is invisible
+        other = c.post("/api/profiles", json={"name": "Imp2", "emoji": "🙂"}).json()
+        assert c.post("/api/ytimport/feed", json={"category_id": cat["id"], "source": "liked"},
+                      headers={"X-Profile-Id": str(other["id"])}).status_code == 404
+        # mocked extraction: feed import inserts prefiltered candidates
+        from bt.api import ytimport
+        entries = [{"id": "goodvid0001", "title": "Good", "channel_id": "UCgood", "duration": 600},
+                   {"id": "shortvid001", "title": "Short", "channel_id": "UCgood", "duration": 30},
+                   {"id": "livevid0001", "title": "Live", "channel_id": "UCgood", "duration": 600,
+                    "is_live": True}]
+        monkeypatched = entries
+
+        def fake_flat(url, kind, limit):
+            return monkeypatched
+
+        orig_flat = ytimport._flat_entries
+        ytimport._flat_entries = fake_flat
+        try:
+            res = c.post("/api/ytimport/feed", json={"category_id": cat["id"], "source": "liked", "limit": 10},
+                         headers=h).json()
+        finally:
+            ytimport._flat_entries = orig_flat
+        assert res["found"] == 3 and res["added"] == 1 and res["skipped"] == 2
+        assert res["skip_reasons"] == {"short": 1, "live stream": 1}
+        from sqlmodel import select as _sel
+        with session() as s:
+            rows = s.exec(_sel(Candidate).where(Candidate.category_id == cat["id"])).all()
+            assert [(r.video_id, r.status, r.source) for r in rows] == [("goodvid0001", "found", "import:liked")]
+    finally:
+        COOKIES_PATH.unlink(missing_ok=True)
+
+
 def test_settings_and_agent():
     c = client()
     st = c.get("/api/settings").json()

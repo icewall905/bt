@@ -392,6 +392,20 @@ export interface CookieTestResult {
 	blocked?: boolean;
 }
 
+export interface ImportSubscriptionsResult {
+	imported: number;
+	already_known: number;
+	total: number;
+}
+
+export interface ImportFeedResult {
+	found: number;
+	added: number;
+	skipped: number;
+	skip_reasons: Record<string, number>;
+	category: string;
+}
+
 export interface StatsCategoryRow {
 	id: number;
 	name: string;
