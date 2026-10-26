@@ -399,6 +399,10 @@ export interface ImportSubscriptionsResult {
 }
 
 export interface ImportFeedResult {
+	target_queue: number;
+	category_id: number;
+	created: boolean;
+	brief: string;
 	found: number;
 	added: number;
 	skipped: number;

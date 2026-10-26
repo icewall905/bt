@@ -13,6 +13,7 @@ test.afterAll(async ({ request }) => {
 });
 
 test('cookies tab validates the uploaded session', async ({ page }) => {
+	await page.route('**/api/cookies/test', route => route.fulfill({ json: { present: true, logged_in: false } }));
 	await freshPage(page, '/settings?tab=cookies');
 
 	// Nothing installed: no check button yet.
@@ -35,6 +36,18 @@ test('cookies tab validates the uploaded session', async ({ page }) => {
 	// The import section appears with cookies installed, with both actions reachable.
 	await expect(page.getByRole('heading', { name: 'Import from your YouTube account' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Import subscriptions' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Import into category' })).toBeVisible();
-	await expect(page.locator('button.select').filter({ hasText: 'Into category' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Create playlist & import' })).toBeVisible();
+    await page.getByLabel('Playlist name').fill('Lab discoveries');
+    await page.route('**/api/ytimport/feed', async route => {
+        const body = route.request().postDataJSON();
+        expect(body.playlist_name).toBe('Lab discoveries');
+        expect(body.category_id).toBeUndefined();
+        await route.fulfill({ json: {
+            found: 30, added: 30, skipped: 0, skip_reasons: {}, category: 'Lab discoveries',
+            category_id: 100, created: true, target_queue: 30, brief: 'Find curious lab demonstrations.'
+        } });
+    });
+    await page.getByRole('button', { name: 'Create playlist & import' }).click();
+    await expect(page.getByText('Added 30 of 30 videos to Lab discoveries.')).toBeVisible();
+    await expect(page.getByText('Find curious lab demonstrations.')).toBeVisible();
 });

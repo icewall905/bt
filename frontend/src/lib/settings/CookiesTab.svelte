@@ -26,6 +26,8 @@
 	let source = $state('recommended');
 	let playlistUrl = $state('');
 	let categoryId = $state(0);
+	let destination = $state('new');
+	let playlistName = $state('');
 	let limit = $state(50);
 	let subsBusy = $state(false);
 	let feedBusy = $state(false);
@@ -53,17 +55,20 @@
 	}
 
 	async function importFromFeed() {
-		if (!chosenCategory) return toast.warn('Pick a category to import into.');
+		if (destination === 'new' && !playlistName.trim()) return toast.warn('Give the playlist a name.');
+		if (destination === 'existing' && !chosenCategory) return toast.warn('Pick a playlist to import into.');
 		feedBusy = true;
 		feedResult = null;
 		importError = '';
 		try {
 			feedResult = await api.importFeed({
-				category_id: chosenCategory.id,
+				category_id: destination === 'existing' ? chosenCategory!.id : undefined,
+				playlist_name: destination === 'new' ? playlistName.trim() : undefined,
 				source,
 				playlist_url: source === 'playlist' ? playlistUrl : undefined,
 				limit
 			});
+			await session.loadCategories();
 			toast.success(`Added ${feedResult.added} videos to ${feedResult.category}.`);
 		} catch (e) {
 			importError = (e as Error).message;
@@ -149,7 +154,7 @@
 {#if present}
 	<div class="gap"></div>
 
-	<Section title="Import from your YouTube account" intro="Bring the taste you already have into {session.profile?.name ?? 'this profile'}. Uses the cookie session above; imports are added as pending picks for the AI to read and judge, not straight to the feeds.">
+	<Section title="Import from your YouTube account" intro="Bring the taste you already have into {session.profile?.name ?? 'this profile'}. Create a playlist from your videos. The AI writes a prompt from the full import and finds similar replacements as you mark videos seen.">
 		<div class="panel import">
 			<div>
 				<strong>Subscriptions</strong>
@@ -168,8 +173,8 @@
 
 		<div class="panel import">
 			<div>
-				<strong>Feed or playlist → category</strong>
-				<p class="small muted">Recommended feed, Watch later, Liked videos, or any playlist. Videos land in the category's inbox; the AI judges each one against the brief. The inbox holds 12 at a time — import again once it drains.</p>
+				<strong>Create a self-refilling playlist</strong>
+				<p class="small muted">Import your starting picks directly, without AI judging. For a new playlist, every imported video helps shape an editable AI prompt. The curator uses it to refill seen spots with similar videos.</p>
 			</div>
 		</div>
 		<div class="feedgrid">
@@ -177,23 +182,35 @@
 			{#if source === 'playlist'}
 				<TextField label="Playlist URL" bind:value={playlistUrl} placeholder="https://www.youtube.com/playlist?list=PL…" group="ck-imp" />
 			{/if}
-			<Select
-				label="Into category"
+			<Select label="Destination" bind:value={destination} group="ck-imp" options={[
+                { value: 'new', label: 'Create a new playlist' },
+                { value: 'existing', label: 'Add to an existing playlist' }
+            ]} />
+            {#if destination === 'new'}
+                <TextField label="Playlist name" bind:value={playlistName} placeholder="My playlist" group="ck-imp" />
+            {:else}
+            <Select
+                label="Into playlist"
 				bind:value={categoryId}
 				group="ck-imp"
 				options={categories.map((c) => ({ value: c.id, label: `${c.emoji} ${c.name}` }))}
 			/>
+			{/if}
 			<Stepper label="Max videos" bind:value={limit} min={10} max={200} step={10} />
 			<button class="btn primary" disabled={feedBusy} use:focusable={{ group: 'ck-imp', id: 'ck-imp-feed', onSelect: importFromFeed }}>
-				{#if feedBusy}Importing…{:else}Import into category{/if}
+				{#if feedBusy}Importing & preparing…{:else if destination === 'new'}Create playlist & import{:else}Import into playlist{/if}
 			</button>
 		</div>
-		{#if !categories.length}
+		{#if destination === 'existing' && !categories.length}
 			<p class="small muted">Create a category first (Settings → Categories).</p>
 		{/if}
 		{#if feedResult}
 			<div class="result panel ok">
-				<p><strong>Added {feedResult.added} of {feedResult.found} videos to {feedResult.category}.</strong> The curator will read and judge them next.</p>
+				<p><strong>Added {feedResult.added} of {feedResult.found} videos to {feedResult.category}.</strong> They are ready to watch; the curator will judge only future replacements.</p>
+                {#if feedResult.created}
+                    <p class="small muted">Your playlist refills to {feedResult.target_queue} videos as picks are seen. Edit the prompt in Settings → Categories.</p>
+                    <p class="small">{feedResult.brief}</p>
+                {/if}
 				{#if feedResult.skipped}
 					<p class="small muted">Skipped {feedResult.skipped}: {Object.entries(feedResult.skip_reasons).map(([k, v]) => `${k} (${v})`).join(', ')}</p>
 				{/if}

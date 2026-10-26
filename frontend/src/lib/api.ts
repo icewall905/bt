@@ -225,7 +225,7 @@ export const api = {
 	deleteCookies: () => del<{ present: boolean }>('/cookies'),
 	testCookies: () => post<CookieTestResult>('/cookies/test', {}, { toast: false }),
 	importSubscriptions: () => post<ImportSubscriptionsResult>('/ytimport/subscriptions', {}, { toast: false }),
-	importFeed: (body: { category_id: number; source: string; playlist_url?: string; limit: number }) =>
+	importFeed: (body: { category_id?: number; playlist_name?: string; source: string; playlist_url?: string; limit: number }) =>
 		post<ImportFeedResult>('/ytimport/feed', body, { toast: false }),
 	stats: () => get<{ videos: number; candidates_24h: number; lessons: number }>('/stats', { toast: false }),
 	statsPage: (days = 30) => get<StatsPageData>(`/stats/page${q({ days })}`, { toast: false }),

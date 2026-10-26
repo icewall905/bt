@@ -323,7 +323,7 @@ def test_ytimport_requires_cookies_and_valid_body(tmp_path):
         other = c.post("/api/profiles", json={"name": "Imp2", "emoji": "🙂"}).json()
         assert c.post("/api/ytimport/feed", json={"category_id": cat["id"], "source": "liked"},
                       headers={"X-Profile-Id": str(other["id"])}).status_code == 404
-        # mocked extraction: feed import inserts prefiltered candidates
+        # Imported starting picks bypass filtering and AI judging.
         from bt.api import ytimport
         entries = [{"id": "goodvid0001", "title": "Good", "channel_id": "UCgood", "duration": 600},
                    {"id": "shortvid001", "title": "Short", "channel_id": "UCgood", "duration": 30},
@@ -341,12 +341,14 @@ def test_ytimport_requires_cookies_and_valid_body(tmp_path):
                          headers=h).json()
         finally:
             ytimport._flat_entries = orig_flat
-        assert res["found"] == 3 and res["added"] == 1 and res["skipped"] == 2
-        assert res["skip_reasons"] == {"short": 1, "live stream": 1}
+        assert res["found"] == 3 and res["added"] == 3 and res["skipped"] == 0
+        assert res["skip_reasons"] == {}
         from sqlmodel import select as _sel
         with session() as s:
             rows = s.exec(_sel(Candidate).where(Candidate.category_id == cat["id"])).all()
-            assert [(r.video_id, r.status, r.source) for r in rows] == [("goodvid0001", "found", "import:liked")]
+            assert {(r.video_id, r.status, r.source) for r in rows} == {
+                (e["id"], "accepted", "import:liked") for e in entries
+            }
     finally:
         COOKIES_PATH.unlink(missing_ok=True)
 
