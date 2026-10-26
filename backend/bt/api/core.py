@@ -666,6 +666,13 @@ def delete_cookies():
     return {"present": False}
 
 
+@router.post("/cookies/test")
+def test_cookies():
+    """Does the installed cookies.txt still carry a signed-in YouTube session?"""
+    from .. import ytdl
+    return ytdl.cookie_check()
+
+
 @router.get("/stats")
 def stats(pid: int = Depends(profile_id), s: Session = Depends(get_session)):
     since = now() - timedelta(days=1)

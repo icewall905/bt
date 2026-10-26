@@ -17,6 +17,7 @@ import type {
 	LlmTestResult,
 	ProxyProvider,
 	ProxyTestResult,
+	CookieTestResult,
 	Profile,
 	SbSegment,
 	Settings,
@@ -220,6 +221,7 @@ export const api = {
 	saveSettings: <K extends keyof Settings>(key: K, value: Partial<Settings[K]>) => put<Settings[K]>(`/settings/${key}`, value),
 	uploadCookies: (text: string) => request<{ present: boolean }>('/cookies', { method: 'PUT', raw: text, headers: { 'Content-Type': 'text/plain' } }),
 	deleteCookies: () => del<{ present: boolean }>('/cookies'),
+	testCookies: () => post<CookieTestResult>('/cookies/test', {}, { toast: false }),
 	stats: () => get<{ videos: number; candidates_24h: number; lessons: number }>('/stats', { toast: false }),
 	statsPage: (days = 30) => get<StatsPageData>(`/stats/page${q({ days })}`, { toast: false }),
 

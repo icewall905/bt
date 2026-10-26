@@ -294,6 +294,13 @@ def test_proxy_test_unreachable_proxy_reports_error():
     assert "reach the proxy" in res["hint"]
 
 
+def test_cookies_test_without_cookies():
+    from bt.config import COOKIES_PATH
+    COOKIES_PATH.unlink(missing_ok=True)
+    c = client()
+    assert c.post("/api/cookies/test").json() == {"present": False, "logged_in": False}
+
+
 def test_settings_and_agent():
     c = client()
     st = c.get("/api/settings").json()

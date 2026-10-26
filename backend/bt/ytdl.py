@@ -415,6 +415,33 @@ def cache_clear() -> None:
         _fail.clear()
 
 
+def cookie_check(origin: str = "user") -> dict:
+    """-> {present, logged_in, history_items?, error?}.
+
+    Only a signed-in session gets entries from the watch-history feed: anonymously
+    the same page extracts fine but has zero entries. Uses the normal options
+    (cookies + proxy if one is set), so it also catches a session that YouTube
+    has invalidated and bot-checks raised on the check itself.
+    """
+    if not COOKIES_PATH.exists():
+        return {"present": False, "logged_in": False}
+    opts = _opts(extractor_retries=0, socket_timeout=15)
+    opts.update(extract_flat="in_playlist", playlistend=3)
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info("https://www.youtube.com/feed/history", download=False)
+    except Exception as e:
+        err = classify(e)
+        log_yt_request("cookie_test", origin, False, f"cookie test: {type(err).__name__}: {str(e)[:200]}")
+        out = {"present": True, "logged_in": False, "error": str(e)[:300]}
+        if isinstance(err, YtBlocked):
+            out["blocked"] = True
+        return out
+    n = len(info.get("entries") or [])
+    log_yt_request("cookie_test", origin, True, f"cookie test: {n} history items")
+    return {"present": True, "logged_in": n > 0, "history_items": n}
+
+
 def upsert_video(s, d: dict) -> Video:
     """Map a yt-dlp info dict or our entry dict onto a Video row (added to session, not committed)."""
     vid = d["id"]

@@ -384,6 +384,14 @@ export interface ProxyTestResult {
 	hint?: string;
 }
 
+export interface CookieTestResult {
+	present: boolean;
+	logged_in?: boolean;
+	history_items?: number;
+	error?: string;
+	blocked?: boolean;
+}
+
 export interface StatsCategoryRow {
 	id: number;
 	name: string;
