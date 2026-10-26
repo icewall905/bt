@@ -62,9 +62,9 @@
 	{#if session.choosing}
 		<ProfilePicker fullscreen onClose={() => (session.choosing = false)} />
 	{/if}
+	{#if dialogs.candidate != null}<CandidateDrawer />{/if}
 	{#if dialogs.feedback}<FeedbackDialog />{/if}
 	{#if dialogs.addTo}<AddToCategory />{/if}
-	{#if dialogs.candidate != null}<CandidateDrawer />{/if}
 {/if}
 <OskOverlay />
 <Toasts />

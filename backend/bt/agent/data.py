@@ -146,6 +146,29 @@ def recent_titles(s: Session, cat_id: int, status: str, n: int = 8) -> list[str]
     return [t for t in rows if t]
 
 
+def rejections_for(s: Session, cat_id: int, profile_id: int, n: int = 8) -> list[str]:
+    """Recently rejected candidates in a category, with the reason. The family's own feedback
+    (dislike chips/text) beats the AI's verdict note; the AI note is the fallback."""
+    rows = s.exec(select(Candidate, Video).join(Video, Video.id == Candidate.video_id, isouter=True)
+                  .where(Candidate.category_id == cat_id, Candidate.status == "rejected")
+                  .order_by(col(Candidate.judged_at).desc()).limit(n)).all()
+    disliked = {f.video_id: f for f in s.exec(
+        select(Feedback).where(Feedback.profile_id == profile_id, Feedback.rating < 0)
+        .order_by(col(Feedback.created_at))).all()}  # last dislike per video wins
+    out = []
+    for c, v in rows:
+        f = disliked.get(c.video_id)
+        why = ""
+        if f is not None:
+            parts = [p for p in [", ".join(f.chips or []), (f.text or "").strip()] if p]
+            why = "family: " + "; ".join(parts) if parts else ""
+        if not why:
+            ai = (c.red_flags or [""])[0] or c.summary
+            why = f"AI: {ai}" if ai else ""
+        out.append(f"{(v.title if v else c.video_id)} ({why})" if why else (v.title if v else c.video_id))
+    return out
+
+
 def queue_titles(s: Session, cat_id: int, profile_id: int, n: int = 15) -> list[str]:
     """Titles currently sitting in the category feed: accepted, not dismissed, not finished watching."""
     watched = set(s.exec(select(WatchHistory.video_id).where(WatchHistory.profile_id == profile_id,

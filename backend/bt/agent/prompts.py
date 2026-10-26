@@ -44,6 +44,10 @@ How to judge:
   marked kid-safe, any kid-safety concern must lower the score sharply.
 - LESSONS come from this family's own feedback. Obey them strictly; they override your general taste.
   A video that violates a lesson must score below the threshold.
+- RECENT REJECTIONS lists videos this category already turned down, with the reason ("family:" = the
+  family's own words). A candidate that repeats a listed failure — same shallow treatment of the topic,
+  same red flag — must be rejected too. One that fixes the reason (e.g. the family said "too basic", so
+  this one goes deeper) counts in its favour.
 - CHANNEL TRUST (-1..1) reflects the family's past ratings of this channel: lean on it, but the video's own
   content decides.
 - VARIETY: the CURRENT QUEUE lists what is already waiting in this category. When the brief covers several
@@ -98,8 +102,17 @@ def queue_block(queue: list[str]) -> str:
     return "\n".join(out)
 
 
+def rejections_block(rejections: list[str]) -> str:
+    if not rejections:
+        return "RECENT REJECTIONS in this category: (none yet)"
+    out = ["RECENT REJECTIONS in this category (with reasons) — do not accept another video that fails the same way:"]
+    out += [f"- {t}" for t in rejections]
+    return "\n".join(out)
+
+
 def judge_messages(cat, video, lessons: list, trust: Optional[float], transcript_chars: int,
-                   max_comments: int = 40, queue: Optional[list[str]] = None) -> list[dict]:
+                   max_comments: int = 40, queue: Optional[list[str]] = None,
+                   rejections: Optional[list[str]] = None) -> list[dict]:
     chapters = "; ".join(f"{_fmt_dur(c.get('start_time'))} {c.get('title', '')}" for c in (video.chapters or [])[:30])
     comments = []
     for c in (video.comments or [])[:max_comments]:
@@ -117,6 +130,7 @@ def judge_messages(cat, video, lessons: list, trust: Optional[float], transcript
     user = "\n\n".join([
         category_block(cat) + f"\nAccept threshold: {cat.threshold}",
         lessons_block(lessons),
+        rejections_block(rejections or []),
         queue_block(queue or []),
         "VIDEO\n" + "\n".join(meta),
         "DESCRIPTION\n" + _clip(video.description, 1500),
@@ -167,7 +181,8 @@ def planner_messages(cat, lessons: list, accepted: list[str], rejected: list[str
     if accepted:
         parts.append("Recently ACCEPTED (good examples):\n" + "\n".join(f"- {t}" for t in accepted))
     if rejected:
-        parts.append("Recently REJECTED (avoid this kind):\n" + "\n".join(f"- {t}" for t in rejected))
+        parts.append("Recently REJECTED (avoid this kind — reason in brackets, \"family:\" = the family's own words):\n"
+                     + "\n".join(f"- {t}" for t in rejected))
     if disliked:
         parts.append("The family DISLIKED:\n" + "\n".join(f"- {t}" for t in disliked))
     if tried:

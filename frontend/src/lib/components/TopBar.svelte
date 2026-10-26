@@ -14,6 +14,7 @@
 		{ href: '/search', label: 'Search', icon: 'search' },
 		{ href: '/subscriptions', label: 'Subscriptions', icon: 'subs' },
 		{ href: '/agent', label: 'Agent', icon: 'agent' },
+		{ href: '/stats', label: 'Stats', icon: 'chart' },
 		{ href: '/settings', label: 'Settings', icon: 'settings' }
 	];
 	const path = $derived(page.url.pathname);

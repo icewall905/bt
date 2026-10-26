@@ -65,7 +65,7 @@ def make_plan(rt: Runtime, cat: Category, plan: dict) -> bool:
     with session() as s:
         msgs = prompts.planner_messages(
             cat, data.lessons_for(s, cat), data.recent_titles(s, cat.id, "accepted"),
-            data.recent_titles(s, cat.id, "rejected"), data.recent_dislikes(s, cat.profile_id),
+            data.rejections_for(s, cat.id, cat.profile_id), data.recent_dislikes(s, cat.profile_id),
             plan.get("tried", [])[-TRIED_KEEP:], data.queue_titles(s, cat.id, cat.profile_id))
     rt.state("planning", f"Planning searches for {cat.name}", cat)
     rt.event("plan", f"🧭 Planning new searches for {cat.name}", "info", cat)

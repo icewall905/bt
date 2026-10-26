@@ -20,7 +20,7 @@
 		{ v: 0, emoji: '📝', label: 'Just a note' },
 		{ v: -1, emoji: '👎', label: 'Not for us' }
 	];
-	const CHIPS = ['Boring', 'Mean/cruel', 'Too long', 'Clickbait', 'Too hard', 'Too babyish', 'Loud/annoying', 'Scary', 'Loved it', 'More like this'];
+	const CHIPS = ['Boring', 'Mean/cruel', 'Too long', 'Clickbait', 'Too basic', 'Too hard', 'Too babyish', 'Loud/annoying', 'Scary', 'Loved it', 'More like this'];
 	const cat = $derived(session.categoryById(t?.categoryId));
 
 	function toggle(c: string) {
@@ -36,14 +36,14 @@
 			toast.success(rating != null && rating < 0 ? 'Thanks. The AI will avoid videos like this.' : 'Thanks. The AI will learn from this.');
 			const done = t.onDone;
 			close();
-			done?.();
+			done?.(rating ?? 0);
 		} finally {
 			busy = false;
 		}
 	}
 </script>
 
-<Modal title="How was it?" subtitle={t.title} size="md" onClose={close}>
+<Modal title={t.heading ?? 'How was it?'} subtitle={t.title} size="md" onClose={close}>
 	<div class="stack">
 		<div class="ratings">
 			{#each RATINGS as r}

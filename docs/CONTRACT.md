@@ -20,6 +20,19 @@ Deploy: `root@10.0.10.73:/root/compose/bt`, port **6645**, public URL `https://b
 - **"Don't like channel"** (`POST /api/channels/{id}/block`): blocks the channel for the profile and dismisses its
   accepted/pending candidates in the profile's categories (blocked channels are rejected by the prefilter). Button on
   category cards; the watch page "Block channel" uses the same endpoint.
+- **Verdict feedback** (candidate drawer, opened from Agent-page verdicts and "Why picked?"): the 💬 Feedback button
+  opens the shared feedback dialog (`onDone(rating)` callback). A dislike now also flips the candidate to
+  `status="rejected"` + dismissed with `judged_at`, appends the family's reason to `red_flags` ("Family: chips, text")
+  and emits a `reject` AgentEvent ("🚫 You rejected: ... — reason", payload has `candidate_id` + `by:"family"`).
+  The judge and planner receive **RECENT REJECTIONS with reasons** (`data.rejections_for`: last 8 rejected candidates
+  per category; the family's dislike reason beats the AI's verdict note), so future picks avoid the same failure
+  ("this Ollama video was too basic → want advanced ones").
+- **Statistics page** (`/stats`, top-bar tab "Stats"): `GET /api/stats/page?days=N` (N ≤ 120, default 30) returns
+  `overview` (videos known, candidate pipeline counts incl. `waiting_judge`/`in_queue`/`rejected_ai` vs
+  `rejected_family`/`dismissed`, downloads by status + storage, feedback by rating, lessons, watched totals + seconds,
+  channel counts, YT budget), `categories` (per-category counts incl. in-queue vs target, watched, avg accepted score)
+  and `daily` (per-day: found/accepted/rejected split family-vs-AI/feedback/watched with per-category breakdown/
+  downloads/YT requests, oldest first, UTC days).
 - Build material lives in this repo; commit when ready (no AI attribution trailers in commits).
 
 ## Layout / ownership

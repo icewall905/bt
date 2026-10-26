@@ -353,3 +353,64 @@ export interface LlmTestResult {
 	reply?: string;
 	error?: string;
 }
+
+export interface StatsCategoryRow {
+	id: number;
+	name: string;
+	emoji: string;
+	color: string;
+	enabled: boolean;
+	target: number;
+	threshold: number;
+	avg_score: number | null;
+	watch_seconds: number;
+	counts: {
+		found: number;
+		enriched: number;
+		accepted: number;
+		in_queue: number;
+		rejected_ai: number;
+		rejected_family: number;
+		dismissed: number;
+		error: number;
+		watched: number;
+	};
+}
+
+export interface StatsDay {
+	date: string;
+	found: number;
+	accepted: number;
+	rejected_ai: number;
+	rejected_family: number;
+	feedback: number;
+	watched: number;
+	watched_by_category: Record<string, number>;
+	downloads: number;
+	yt_requests: number;
+}
+
+export interface StatsPageData {
+	overview: {
+		videos: number;
+		candidates: {
+			waiting_judge: number;
+			accepted: number;
+			in_queue: number;
+			rejected_ai: number;
+			rejected_family: number;
+			dismissed: number;
+			error: number;
+		};
+		downloads: Record<string, number> & { waiting?: number };
+		storage_bytes: number;
+		feedback: { love: number; like: number; note: number; dislike: number };
+		lessons: { active: number; inactive: number };
+		watched: number;
+		watch_seconds: number;
+		channels: { subscribed: number; blocked: number };
+		budget: { hour: number; day: number; max_hour: number; max_day: number };
+	};
+	categories: StatsCategoryRow[];
+	daily: StatsDay[];
+}

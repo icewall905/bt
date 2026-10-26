@@ -481,6 +481,31 @@ def test_queue_context_reaches_judge_and_planner():
     assert "Space Vid A" in p and "CURRENT QUEUE" in p and "VARIETY" in prompts.PLANNER_SYSTEM
 
 
+def test_rejections_with_reasons_reach_judge_and_planner():
+    cat = make_category()
+    with session() as s:
+        s.add(Video(id="a" * 11, title="Ollama setup for beginners", channel_id="UC"))
+        s.add(Video(id="b" * 11, title="Prank vid", channel_id="UC2"))
+        s.add(Candidate(category_id=cat.id, video_id="a" * 11, status="rejected",
+                        judged_at=now() + timedelta(seconds=10),
+                        red_flags=["Family: Boring; too basic, want advanced stuff"]))
+        s.add(Candidate(category_id=cat.id, video_id="b" * 11, status="rejected", judged_at=now(),
+                        red_flags=["cruel prank"]))
+        s.add(Feedback(profile_id=cat.profile_id, video_id="a" * 11, category_id=cat.id, rating=-1,
+                       chips=["Boring"], text="too basic, want advanced stuff"))
+        s.commit()
+        r = data.rejections_for(s, cat.id, cat.profile_id)
+    # family feedback is the reason when present, the AI note otherwise
+    assert r[0] == "Ollama setup for beginners (family: Boring; too basic, want advanced stuff)"
+    assert r[1] == "Prank vid (AI: cruel prank)"
+    v = Video(id="c" * 11, title="T", channel_id="UC", transcript="hello")
+    u = prompts.judge_messages(cat, v, [], None, 1000, rejections=r)[-1]["content"]
+    assert "RECENT REJECTIONS" in u and "family: Boring; too basic, want advanced stuff" in u
+    assert "RECENT REJECTIONS" in prompts.JUDGE_SYSTEM
+    p = prompts.planner_messages(cat, [], [], r, [], [], queue=[])[-1]["content"]
+    assert "Ollama setup for beginners" in p and "family:" in p
+
+
 # ------------------------------------------------------------------ JSON parsing / llm client
 
 @pytest.mark.parametrize("raw", [

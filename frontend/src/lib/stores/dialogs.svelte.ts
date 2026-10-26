@@ -3,8 +3,9 @@ export interface FeedbackTarget {
 	videoId: string;
 	categoryId?: number | null;
 	title?: string;
+	heading?: string;
 	rating?: number;
-	onDone?: () => void;
+	onDone?: (rating: number) => void;
 }
 
 class Dialogs {

@@ -18,6 +18,7 @@ import type {
 	Profile,
 	SbSegment,
 	Settings,
+	StatsPageData,
 	Video,
 	VideoDetail,
 	AgentControl,
@@ -216,6 +217,7 @@ export const api = {
 	uploadCookies: (text: string) => request<{ present: boolean }>('/cookies', { method: 'PUT', raw: text, headers: { 'Content-Type': 'text/plain' } }),
 	deleteCookies: () => del<{ present: boolean }>('/cookies'),
 	stats: () => get<{ videos: number; candidates_24h: number; lessons: number }>('/stats', { toast: false }),
+	statsPage: (days = 30) => get<StatsPageData>(`/stats/page${q({ days })}`, { toast: false }),
 
 	// agent
 	agentStatus: () => get<AgentStatus>('/agent/status', { toast: false }),

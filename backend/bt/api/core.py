@@ -8,9 +8,9 @@ from pydantic import BaseModel
 from sqlmodel import Session, col, delete, func, select
 
 from ..config import COOKIES_PATH, DEFAULT_SETTINGS
-from ..db import get_session, get_settings, save_setting
-from ..models import (Candidate, Category, Channel, Feedback, Lesson, Profile, ProfileChannel, Video,
-                      WatchHistory, now)
+from ..db import emit, get_session, get_settings, save_setting, yt_request_counts
+from ..models import (Candidate, Category, Channel, Download, Feedback, Lesson, Profile, ProfileChannel, Video,
+                      WatchHistory, YtRequest, now)
 
 router = APIRouter()
 
@@ -402,15 +402,29 @@ class FeedbackIn(BaseModel):
 def add_feedback(body: FeedbackIn, pid: int = Depends(profile_id), s: Session = Depends(get_session)):
     f = Feedback(**body.model_dump(), profile_id=pid)
     s.add(f)
-    # A dislike removes it from the category feed right away.
+    # A dislike removes the candidate from the category feed right away and flips it to rejected,
+    # so the judge/planner see it (with this reason) as a video this family does not want again.
+    rejected = None
+    reason = ", ".join(x for x in [", ".join(body.chips), body.text.strip()] if x)
     if body.rating < 0 and body.category_id:
         c = s.exec(select(Candidate).where(Candidate.category_id == body.category_id,
                                            Candidate.video_id == body.video_id)).first()
         if c:
             c.dismissed = True
+            c.status = "rejected"
+            c.judged_at = now()
+            if reason:
+                c.red_flags = [*(c.red_flags or []), f"Family: {reason}"][:8]
             s.add(c)
+            rejected = c
     s.commit()
     s.refresh(f)
+    if rejected is not None:
+        v = s.get(Video, body.video_id)
+        cat = s.get(Category, body.category_id)
+        emit("reject", f"🚫 You rejected: {v.title if v else body.video_id}" + (f" — {reason}" if reason else ""),
+             "info", profile_id=pid, category_id=body.category_id, video_id=body.video_id,
+             payload={"candidate_id": rejected.id, "by": "family"})
     return f
 
 
@@ -606,3 +620,154 @@ def stats(pid: int = Depends(profile_id), s: Session = Depends(get_session)):
         "candidates_24h": s.exec(select(func.count()).select_from(Candidate).where(Candidate.created_at >= since)).one(),
         "lessons": s.exec(select(func.count()).select_from(Lesson).where(Lesson.profile_id == pid)).one(),
     }
+
+
+@router.get("/stats/page")
+def stats_page(days: int = 30, pid: int = Depends(profile_id), s: Session = Depends(get_session)):
+    """Everything the Statistics page shows for the active profile, in one payload."""
+    days = max(1, min(120, days))
+    since = (now() - timedelta(days=days - 1)).date().isoformat()
+    cats = s.exec(select(Category).where(Category.profile_id == pid).order_by(Category.position, Category.id)).all()
+    cat_ids = [c.id for c in cats]
+    cat_where = col(Candidate.category_id).in_(cat_ids) if cat_ids else col(Candidate.id) < 0
+
+    # (video, category) pairs the family disliked: those rejections are the family's, not the AI's
+    fam_pairs = {(v, c) for v, c in s.exec(select(Feedback.video_id, Feedback.category_id)
+                                          .where(Feedback.profile_id == pid, Feedback.rating < 0)).all()}
+
+    # ---------- per-category rows
+    per_cat = {c.id: {
+        "id": c.id, "name": c.name, "emoji": c.emoji, "color": c.color, "enabled": c.enabled,
+        "target": c.target_queue, "threshold": c.threshold, "avg_score": None, "watch_seconds": 0,
+        "counts": {"found": 0, "enriched": 0, "accepted": 0, "in_queue": 0, "rejected_ai": 0,
+                   "rejected_family": 0, "dismissed": 0, "error": 0, "watched": 0},
+    } for c in cats}
+    status_rows = s.exec(select(Candidate.category_id, Candidate.status, func.count())
+                         .where(cat_where, Candidate.dismissed == False)  # noqa: E712
+                         .group_by(Candidate.category_id, Candidate.status)).all()
+    for cid, st, n in status_rows:
+        if cid in per_cat and st in per_cat[cid]["counts"]:
+            per_cat[cid]["counts"][st] = n
+    for cid, n in s.exec(select(Candidate.category_id, func.count()).where(cat_where, Candidate.dismissed == True)  # noqa: E712
+                         .group_by(Candidate.category_id)).all():
+        if cid in per_cat:
+            per_cat[cid]["counts"]["dismissed"] = n
+    for cid, vid, judged in s.exec(select(Candidate.category_id, Candidate.video_id, Candidate.judged_at)
+                                   .where(cat_where, Candidate.status == "rejected")).all():
+        if cid in per_cat:
+            per_cat[cid]["counts"]["rejected_family" if (vid, cid) in fam_pairs else "rejected_ai"] += 1
+    for cid, avg in s.exec(select(Candidate.category_id, func.avg(Candidate.score))
+                           .where(cat_where, Candidate.status == "accepted")
+                           .group_by(Candidate.category_id)).all():
+        if cid in per_cat and avg is not None:
+            per_cat[cid]["avg_score"] = round(float(avg), 1)
+    watched_vids = set(s.exec(select(WatchHistory.video_id).where(WatchHistory.profile_id == pid,
+                                                                 WatchHistory.finished == True)).all())  # noqa: E712
+    acc = {}
+    for cid, vid in s.exec(select(Candidate.category_id, Candidate.video_id)
+                           .where(cat_where, Candidate.status == "accepted",
+                                  Candidate.dismissed == False)).all():  # noqa: E712
+        acc.setdefault(cid, []).append(vid)
+    for cid, vids in acc.items():
+        if cid in per_cat:
+            per_cat[cid]["counts"]["in_queue"] = sum(1 for v in vids if v not in watched_vids)
+    for cid, n, secs in s.exec(select(WatchHistory.category_id, func.count(), func.sum(WatchHistory.duration_s))
+                               .where(WatchHistory.profile_id == pid, WatchHistory.finished == True)  # noqa: E712
+                               .group_by(WatchHistory.category_id)).all():
+        if cid in per_cat:
+            per_cat[cid]["counts"]["watched"] = n
+            per_cat[cid]["watch_seconds"] = int(secs or 0)
+
+    # ---------- overview totals
+    fb = {int(r): n for r, n in s.exec(select(Feedback.rating, func.count())
+                                       .where(Feedback.profile_id == pid).group_by(Feedback.rating)).all()}
+    dl = {}
+    storage = 0
+    for st, n, size in s.exec(select(Download.status, func.count(), func.sum(Download.size_bytes))
+                              .group_by(Download.status)).all():
+        dl[st] = n
+        if st == "done":
+            storage = int(size or 0)
+    st_all = get_settings(s)["throttle"]
+    overview = {
+        "videos": s.exec(select(func.count()).select_from(Video)).one(),
+        "candidates": {
+            "waiting_judge": sum(per_cat[c]["counts"][k] for c in cat_ids for k in ("found", "enriched")),
+            "accepted": sum(per_cat[c]["counts"]["accepted"] for c in cat_ids),
+            "in_queue": sum(per_cat[c]["counts"]["in_queue"] for c in cat_ids),
+            "rejected_ai": sum(per_cat[c]["counts"]["rejected_ai"] for c in cat_ids),
+            "rejected_family": sum(per_cat[c]["counts"]["rejected_family"] for c in cat_ids),
+            "dismissed": sum(per_cat[c]["counts"]["dismissed"] for c in cat_ids),
+            "error": sum(per_cat[c]["counts"]["error"] for c in cat_ids),
+        },
+        "downloads": {"waiting": dl.get("queued", 0) + dl.get("downloading", 0), **dl},
+        "storage_bytes": storage,
+        "feedback": {"love": fb.get(2, 0), "like": fb.get(1, 0), "note": fb.get(0, 0), "dislike": fb.get(-1, 0)},
+        "lessons": {
+            "active": s.exec(select(func.count()).select_from(Lesson)
+                             .where(Lesson.profile_id == pid, Lesson.active == True)).one(),  # noqa: E712
+            "inactive": s.exec(select(func.count()).select_from(Lesson)
+                               .where(Lesson.profile_id == pid, Lesson.active == False)).one(),  # noqa: E712
+        },
+        "watched": s.exec(select(func.count()).select_from(WatchHistory)
+                         .where(WatchHistory.profile_id == pid, WatchHistory.finished == True)).one(),  # noqa: E712
+        "watch_seconds": int(s.exec(select(func.sum(WatchHistory.duration_s))
+                                    .where(WatchHistory.profile_id == pid,
+                                           WatchHistory.finished == True)).one() or 0),  # noqa: E712
+        "channels": {
+            "subscribed": s.exec(select(func.count()).select_from(ProfileChannel)
+                                 .where(ProfileChannel.profile_id == pid,
+                                        ProfileChannel.subscribed == True)).one(),  # noqa: E712
+            "blocked": s.exec(select(func.count()).select_from(ProfileChannel)
+                               .where(ProfileChannel.profile_id == pid,
+                                      ProfileChannel.blocked == True)).one(),  # noqa: E712
+        },
+        "budget": {**yt_request_counts(), "max_hour": st_all["max_per_hour"], "max_day": st_all["max_per_day"]},
+    }
+
+    # ---------- daily series (last `days` days, oldest first)
+    keys = [(now() - timedelta(days=i)).date().isoformat() for i in range(days - 1, -1, -1)]
+    daily = {d: {"date": d, "found": 0, "accepted": 0, "rejected_ai": 0, "rejected_family": 0, "feedback": 0,
+                 "watched": 0, "watched_by_category": {}, "downloads": 0, "yt_requests": 0} for d in keys}
+
+    d_expr = func.date(Candidate.judged_at)
+    for st, d, n in s.exec(select(Candidate.status, d_expr, func.count())
+                           .where(cat_where, Candidate.judged_at != None, d_expr >= since)
+                           .group_by(Candidate.status, d_expr)).all():
+        if st == "accepted" and d in daily:
+            daily[d]["accepted"] = n
+    f_expr = func.date(Feedback.created_at)
+    for d, n in s.exec(select(f_expr, func.count())
+                       .where(Feedback.profile_id == pid, f_expr >= since).group_by(f_expr)).all():
+        if d in daily:
+            daily[d]["feedback"] = n
+    w_expr = func.date(WatchHistory.updated_at)
+    for d, cid, n in s.exec(select(w_expr, WatchHistory.category_id, func.count())
+                            .where(WatchHistory.profile_id == pid, WatchHistory.finished == True,  # noqa: E712
+                                   w_expr >= since).group_by(w_expr, WatchHistory.category_id)).all():
+        if d in daily:
+            daily[d]["watched"] += n
+            if cid is not None:
+                daily[d]["watched_by_category"][str(cid)] = n
+    c_expr = func.date(Candidate.created_at)
+    for d, n in s.exec(select(c_expr, func.count()).where(cat_where, c_expr >= since).group_by(c_expr)).all():
+        if d in daily:
+            daily[d]["found"] = n
+    dl_expr = func.date(Download.finished_at)
+    for d, n in s.exec(select(dl_expr, func.count()).where(Download.finished_at != None, dl_expr >= since)
+                       .group_by(dl_expr)).all():
+        if d in daily:
+            daily[d]["downloads"] = n
+    yt_expr = func.date(YtRequest.ts)
+    for d, n in s.exec(select(yt_expr, func.count()).where(yt_expr >= since).group_by(yt_expr)).all():
+        if d in daily:
+            daily[d]["yt_requests"] = n
+    # rejected per day, split family/AI the same way as the totals
+    for cid, vid, judged in s.exec(select(Candidate.category_id, Candidate.video_id, Candidate.judged_at)
+                                   .where(cat_where, Candidate.status == "rejected",
+                                          Candidate.judged_at != None)).all():
+        d = judged.date().isoformat() if judged else None
+        if d in daily:
+            daily[d]["rejected_family" if (vid, cid) in fam_pairs else "rejected_ai"] += 1
+
+    return {"overview": overview, "categories": list(per_cat.values()), "daily": list(daily.values())}

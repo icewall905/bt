@@ -8,7 +8,7 @@ from sqlmodel import select  # noqa: E402
 
 from bt.db import emit, session  # noqa: E402
 from bt.main import app  # noqa: E402
-from bt.models import Candidate, Category, Video  # noqa: E402
+from bt.models import Candidate, Category, Video, WatchHistory, now  # noqa: E402
 from bt.agent import data  # noqa: E402
 
 
@@ -82,6 +82,73 @@ def test_mark_seen():
         ctx = data.profile_ctx(s, profiles[0]["id"])
         assert data.prefilter({"id": "seenit00000", "duration_s": 600, "title": "Seen"}, cat_obj, ctx, False) == "already watched"
         assert data.prefilter({"id": "other000000", "duration_s": 600, "title": "Other"}, cat_obj, ctx, False) is None
+
+
+def test_feedback_dislike_rejects_candidate():
+    c = client()
+    profiles = c.get("/api/profiles").json()
+    h = {"X-Profile-Id": str(profiles[0]["id"])}
+    cat = c.post("/api/categories", json={"name": "LLM stuff", "brief": "local LLM howtos"}, headers=h).json()
+    with session() as s:
+        s.add(Video(id="ollama00000", title="Ollama setup for total beginners", channel_id="UC1", duration_s=600))
+        s.add(Candidate(category_id=cat["id"], video_id="ollama00000", status="accepted", score=80,
+                        summary="gentle intro"))
+        s.commit()
+
+    r = c.post("/api/feedback", json={"video_id": "ollama00000", "category_id": cat["id"], "rating": -1,
+                                      "chips": ["Boring", "Too basic"],
+                                      "text": "want more advanced videos"}, headers=h).json()
+    assert r["rating"] == -1
+    with session() as s:
+        cand = s.exec(select(Candidate).where(Candidate.video_id == "ollama00000")).first()
+        assert cand.status == "rejected" and cand.dismissed and cand.judged_at is not None
+        assert cand.red_flags[-1] == "Family: Boring, Too basic, want more advanced videos"
+    # the verdict log shows the family's rejection, clickable like any verdict
+    evs = c.get("/api/agent/events").json()
+    assert any(e["kind"] == "reject" and "You rejected" in e["message"]
+               and e["payload"].get("candidate_id") == cand.id for e in evs)
+    # candidate detail exposes the family reason to the drawer
+    d = c.get(f"/api/agent/candidates/{cand.id}").json()
+    assert d["status"] == "rejected" and any("Family:" in f for f in d["red_flags"])
+
+
+def test_stats_page():
+    c = client()
+    profiles = c.get("/api/profiles").json()
+    h = {"X-Profile-Id": str(profiles[0]["id"])}
+    cat = c.post("/api/categories", json={"name": "Stats cat", "brief": "b"}, headers=h).json()
+    with session() as s:
+        s.add(Video(id="statsvid001", title="S1", channel_id="UC1", duration_s=600))
+        s.add(Video(id="statsvid002", title="S2", channel_id="UC1", duration_s=600))
+        s.add(Video(id="statsvid003", title="S3", channel_id="UC1", duration_s=600))
+        s.add(Candidate(category_id=cat["id"], video_id="statsvid001", status="accepted", score=80, judged_at=now()))
+        s.add(Candidate(category_id=cat["id"], video_id="statsvid002", status="rejected", score=20,
+                        summary="shallow", judged_at=now()))
+        s.add(Candidate(category_id=cat["id"], video_id="statsvid003", status="accepted", score=70, judged_at=now()))
+        s.add(WatchHistory(profile_id=profiles[0]["id"], video_id="statsvid001", category_id=cat["id"],
+                           finished=True, duration_s=600))
+        s.commit()
+    # the family dislikes the accepted one → its rejection is "family", not the AI's
+    c.post("/api/feedback", json={"video_id": "statsvid001", "category_id": cat["id"], "rating": -1,
+                                  "chips": ["Boring"]}, headers=h)
+
+    r = c.get("/api/stats/page?days=7", headers=h).json()
+    row = next(x for x in r["categories"] if x["id"] == cat["id"])
+    assert row["counts"]["rejected_family"] == 1  # statsvid001, flipped by the feedback above
+    assert row["counts"]["rejected_ai"] == 1      # statsvid002, by the judge
+    assert row["counts"]["watched"] == 1 and row["watch_seconds"] == 600
+    assert row["avg_score"] == 70.0  # over accepted candidates (statsvid001 is now rejected)
+    assert row["counts"]["accepted"] == 1 and row["counts"]["in_queue"] == 1  # statsvid003
+
+    ov = r["overview"]
+    assert ov["videos"] >= 2 and ov["candidates"]["rejected_family"] >= 1 and ov["watched"] >= 1
+    assert ov["feedback"]["dislike"] >= 1 and "waiting" in ov["downloads"] and "max_day" in ov["budget"]
+
+    today = r["daily"][-1]
+    assert today["watched"] >= 1 and today["feedback"] >= 1
+    assert today["rejected_family"] >= 1 and today["rejected_ai"] >= 1
+    assert today["watched_by_category"].get(str(cat["id"])) == 1
+    assert len(r["daily"]) == 7 and r["daily"][0]["date"] < r["daily"][-1]["date"]
 
 
 def test_block_channel_dismisses():

@@ -14,15 +14,21 @@
 	let failed = $state(false);
 	const close = () => (dialogs.candidate = null);
 
-	$effect(() => {
-		const id = dialogs.candidate;
-		if (id == null) return;
+	async function load(id: number) {
 		data = null;
 		failed = false;
-		api.candidate(id).then((d) => {
+		try {
+			const d = await api.candidate(id);
 			if ('status' in d) data = d;
 			else failed = true;
-		}, () => (failed = true));
+		} catch {
+			failed = true;
+		}
+	}
+
+	$effect(() => {
+		const id = dialogs.candidate;
+		if (id != null) load(id);
 	});
 
 	const v = $derived(data && isVideo(data.video) ? data.video : null);
@@ -40,6 +46,23 @@
 		await api.dismissCandidate(data.id);
 		toast.success('Removed from the category');
 		close();
+	}
+
+	// Shape the AI's future picks: feedback rides the normal pipeline (lessons, channel trust),
+	// and a dislike also flips this candidate to rejected so the judge/planner see it with the reason.
+	function openFeedback() {
+		if (!data) return;
+		const id = data.id;
+		dialogs.openFeedback({
+			videoId: data.video.id,
+			categoryId: data.category_id,
+			title: v?.title,
+			heading: 'Feedback on this pick',
+			onDone: (rating) => {
+				if (rating < 0) close();
+				else load(id);
+			}
+		});
 	}
 </script>
 
@@ -112,6 +135,7 @@
 			{:else}
 				<button class="btn" use:focusable={{ onSelect: accept }}>Add anyway</button>
 			{/if}
+			<button class="btn" title="Tell the AI what to pick instead" use:focusable={{ onSelect: openFeedback }}>💬 Feedback</button>
 		{/if}
 		<button class="btn ghost" use:focusable={{ onSelect: close }}>Close</button>
 	{/snippet}

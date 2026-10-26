@@ -26,7 +26,8 @@
 		bell: 'M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15zM10 20.5h4',
 		block: 'M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zM5.6 5.6l12.8 12.8',
 		rewind: 'M11 6 4 12l7 6zM20 6l-7 6 7 6z',
-		forward: 'M13 6l7 6-7 6zM4 6l7 6-7 6z'
+		forward: 'M13 6l7 6-7 6zM4 6l7 6-7 6z',
+		chart: 'M3 20h18M6.5 20v-6M11.5 20V8M16.5 20v-10M21 20V4'
 	};
 	const filled = new Set(['play', 'pause', 'next', 'prev', 'agent', 'rewind', 'forward']);
 </script>
