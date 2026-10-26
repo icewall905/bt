@@ -28,8 +28,8 @@ test('proxy helper composes a URL and reports an unreachable proxy', async ({ pa
 
 	// PIA helper: credentials + region compose the socks5 URL and save masked.
 	await page.getByRole('button', { name: 'PIA', exact: true }).click();
-	await page.getByLabel('Proxy username').fill('u1234567890');
-	await page.getByLabel('Proxy password').fill('secret');
+	await page.getByLabel('SOCKS5 username').fill('u1234567890');
+	await page.getByLabel('SOCKS5 password').fill('secret');
 	await expect(page.getByRole('button', { name: 'Test this proxy' })).toBeEnabled();
 	await page.locator('section', { hasText: 'Pace and limits' }).getByRole('button', { name: 'Save changes' }).click();
 	await expect(page.getByText('Limits saved')).toBeVisible();

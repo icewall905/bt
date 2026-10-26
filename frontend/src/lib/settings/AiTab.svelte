@@ -42,12 +42,11 @@
 	const PROVIDERS = [
 		{ value: 'direct', label: 'Direct' },
 		{ value: 'pia', label: 'PIA' },
-		{ value: 'mullvad', label: 'Mullvad' },
 		{ value: 'local', label: 'Local VPN' },
 		{ value: 'custom', label: 'Custom' }
 	] as const;
 	const catalog = $state<Record<string, ProxyProvider | undefined>>({});
-	const px = $state({ provider: 'direct', user: '', pass: '', region: '', scheme: 'http', host: '', port: '8000', custom: '' });
+	const px = $state({ provider: 'direct', user: '', pass: '', scheme: 'http', host: '', port: '8000', custom: '' });
 
 	onMount(async () => {
 		try {
@@ -61,7 +60,7 @@
 	/** Which helper + fields correspond to a stored proxy URL (credentials come back masked). */
 	function parseProxy(url: string) {
 		px.provider = 'direct';
-		px.user = px.pass = px.region = px.host = px.custom = '';
+		px.user = px.pass = px.host = px.custom = '';
 		px.scheme = 'http';
 		px.port = '8000';
 		if (!url) return;
@@ -74,11 +73,6 @@
 			const h = u.hostname || '';
 			if (h.endsWith('.privateinternetaccess.com')) {
 				px.provider = 'pia';
-				px.region = h.replace(/^proxy-/, '').replace(/\.privateinternetaccess\.com$/, '');
-				px.custom = '';
-			} else if (h.endsWith('.mullvad.net')) {
-				px.provider = 'mullvad';
-				px.region = h.replace(/-wg-socks5\.mullvad\.net$/, '');
 				px.custom = '';
 			}
 		} catch {
@@ -90,12 +84,9 @@
 	function composeProxy(): string {
 		switch (px.provider) {
 			case 'pia':
+				// PIA has a single SOCKS5 proxy, exiting in the Netherlands
 				return px.user && px.pass
-					? `socks5://${encodeURIComponent(px.user)}:${encodeURIComponent(px.pass)}@proxy-${px.region || 'nl'}.privateinternetaccess.com:1080`
-					: '';
-			case 'mullvad':
-				return px.pass
-					? `socks5://m:${encodeURIComponent(px.pass)}@${px.region || 'se-sto'}-wg-socks5.mullvad.net:1080`
+					? `socks5://${encodeURIComponent(px.user)}:${encodeURIComponent(px.pass)}@proxy-nl.privateinternetaccess.com:1080`
 					: '';
 			case 'local':
 				return px.host ? `${px.scheme}://${px.host.trim()}:${px.port.trim() || '8000'}` : '';
@@ -114,8 +105,6 @@
 
 	function pickProvider(p: string) {
 		px.provider = p;
-		if (p === 'pia' && !px.region) px.region = 'nl';
-		if (p === 'mullvad' && !px.region) px.region = 'se-sto';
 		if (p === 'local' && !px.port) px.port = '8000';
 	}
 
@@ -229,21 +218,12 @@
 		{#if catalog[px.provider]?.hint && px.provider !== 'direct'}
 			<p class="small muted">{catalog[px.provider]?.hint}</p>
 		{/if}
-		{#if px.provider === 'pia' || px.provider === 'mullvad'}
-			{#if px.provider === 'pia'}
-				<div class="two">
-					<TextField label="Proxy username" bind:value={px.user} placeholder="x1234567890" group="px" />
-					<TextField label="Proxy password" hint="Generate proxy credentials in the PIA dashboard." type="password" bind:value={px.pass} group="px" />
-				</div>
-			{:else}
-				<TextField label="Account number" hint="The 16-digit number from the Mullvad app; the username can be anything." type="password" bind:value={px.pass} placeholder="1234 1234 1234 1234" group="px" />
-			{/if}
-			<Select
-				label="Region"
-				bind:value={px.region}
-				group="px"
-				options={(catalog[px.provider]?.regions ?? []).map((r) => ({ value: r.id, label: r.name }))}
-			/>
+		{#if px.provider === 'pia'}
+			<div class="two">
+				<TextField label="SOCKS5 username" bind:value={px.user} placeholder="generated in the panel" group="px" />
+				<TextField label="SOCKS5 password" hint="Not your PIA login — generate these under Downloads → VPN Settings → SOCKS." type="password" bind:value={px.pass} group="px" />
+			</div>
+			<p class="small muted">The proxy exits in the Netherlands (PIA's only SOCKS5 location).</p>
 		{:else if px.provider === 'local'}
 			<div class="two">
 				<Select label="Type" bind:value={px.scheme} group="px" options={[{ value: 'http', label: 'HTTP' }, { value: 'socks5', label: 'SOCKS5' }]} />

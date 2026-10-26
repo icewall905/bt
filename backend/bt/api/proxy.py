@@ -25,37 +25,12 @@ PROXY_PROVIDERS: list[dict] = [
     {
         "id": "pia",
         "label": "PIA (SOCKS5)",
-        "hint": "In the PIA dashboard enable the SOCKS5 proxy and generate proxy credentials "
-                "(username + password), then enter them here.",
+        "hint": "PIA has a single SOCKS5 proxy that exits in the Netherlands. The credentials are NOT "
+                "your PIA account login: in the Client Control Panel (Downloads → VPN Settings) find "
+                "SOCKS and press Generate, then paste that username and password here.",
         "scheme": "socks5",
         "port": 1080,
-        "host": "proxy-{region}.privateinternetaccess.com",
-        "regions": [
-            {"id": "nl", "name": "Netherlands"},
-            {"id": "switzerland", "name": "Switzerland"},
-            {"id": "sweden", "name": "Sweden"},
-            {"id": "germany", "name": "Germany"},
-            {"id": "france", "name": "France"},
-            {"id": "uk-london", "name": "UK, London"},
-            {"id": "us-texas", "name": "US, Texas"},
-            {"id": "us-california", "name": "US, California"},
-            {"id": "ca-toronto", "name": "Canada, Toronto"},
-            {"id": "au-sydney", "name": "Australia, Sydney"},
-        ],
-    },
-    {
-        "id": "mullvad",
-        "label": "Mullvad (SOCKS5)",
-        "hint": "The password is your 16-digit Mullvad account number; the username can be anything.",
-        "scheme": "socks5",
-        "port": 1080,
-        "host": "{region}-wg-socks5.mullvad.net",
-        "regions": [
-            {"id": "se-sto", "name": "Sweden, Stockholm"},
-            {"id": "nl-ams", "name": "Netherlands, Amsterdam"},
-            {"id": "de-fra", "name": "Germany, Frankfurt"},
-            {"id": "us-nyc", "name": "US, New York"},
-        ],
+        "host": "proxy-nl.privateinternetaccess.com",
     },
     {
         "id": "local",

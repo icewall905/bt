@@ -275,10 +275,9 @@ def test_proxy_provider_catalog():
     c = client()
     provs = c.get("/api/proxy/providers").json()["providers"]
     by_id = {p["id"]: p for p in provs}
+    assert set(by_id) == {"pia", "local"}  # only providers whose hostnames actually resolve
     assert by_id["pia"]["scheme"] == "socks5" and by_id["pia"]["port"] == 1080
-    assert "nl" in [r["id"] for r in by_id["pia"]["regions"]]
-    assert by_id["pia"]["host"].format(region="nl") == "proxy-nl.privateinternetaccess.com"
-    assert by_id["mullvad"]["host"].format(region="se-sto") == "se-sto-wg-socks5.mullvad.net"
+    assert by_id["pia"]["host"] == "proxy-nl.privateinternetaccess.com"
     assert "http" in by_id["local"]["schemes"]
 
 
