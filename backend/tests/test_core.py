@@ -84,6 +84,41 @@ def test_mark_seen():
         assert data.prefilter({"id": "other000000", "duration_s": 600, "title": "Other"}, cat_obj, ctx, False) is None
 
 
+def test_playlist_pacing_is_shared_paginated_and_aware_of_current_video():
+    c = client()
+    profile = c.post("/api/profiles", json={"name": "Playlist pacing"}).json()
+    h = {"X-Profile-Id": str(profile["id"])}
+    cat = c.post("/api/categories", json={"name": "Mixed interests"}, headers=h).json()
+    with session() as s:
+        for i, (topic, status, dismissed) in enumerate([
+            ("space", "accepted", False), ("space", "accepted", False),
+            ("music", "accepted", False), ("animals", "accepted", False),
+            ("music", "rejected", False), ("music", "accepted", True),
+            ("music", "accepted", False),
+        ]):
+            vid = f"pacing{i:05d}"
+            s.add(Video(id=vid, title=topic, channel_id=f"channel{i}"))
+            s.add(Candidate(category_id=cat["id"], video_id=vid, status=status,
+                            dismissed=dismissed, score=90 - i, tags=[topic]))
+        s.add(WatchHistory(profile_id=profile["id"], video_id="pacing00006", finished=True))
+        s.commit()
+    url = f"/api/feed/category/{cat['id']}"
+    full = c.get(url, headers=h).json()
+    video_ids = lambda items: [x["video"]["id"] for x in items]
+    assert video_ids(full) == ["pacing00000", "pacing00002", "pacing00003", "pacing00001"]
+    pages = c.get(url + "?limit=2", headers=h).json() + c.get(url + "?offset=2&limit=2", headers=h).json()
+    assert video_ids(pages) == video_ids(full)
+    home = c.get("/api/feed/home?per_row=2", headers=h).json()
+    assert video_ids(next(r["items"] for r in home if r.get("category_id") == cat["id"])) == video_ids(full[:2])
+    next_up = c.get(url + "?after=pacing00000", headers=h).json()
+    assert video_ids(next_up)[0] == "pacing00002" and "pacing00000" not in video_ids(next_up)
+    # Still use the current video for pacing after it is marked watched.
+    c.post("/api/history/seen", json={"video_id": "pacing00000"}, headers=h)
+    assert video_ids(c.get(url + "?after=pacing00000", headers=h).json())[0] == "pacing00002"
+    assert c.get(url).status_code == 404
+    assert len(c.get(url + "?status=rejected", headers=h).json()) == 1
+
+
 def test_feedback_dislike_rejects_candidate():
     c = client()
     profiles = c.get("/api/profiles").json()

@@ -101,7 +101,7 @@ def judge_one(rt: Runtime, cand: Candidate) -> Optional[str]:
             return None
         lessons = data.lessons_for(s, cat, v.channel_id)
         trust = data.trust_for(s, cat.profile_id, v.channel_id) if v.channel_id else None
-        queue = data.queue_titles(s, cat.id, cat.profile_id)
+        queue = data.queue_context(s, cat.id, cat.profile_id)
         rejections = data.rejections_for(s, cat.id, cat.profile_id)
     msgs = prompts.judge_messages(
         cat, v, lessons, trust, min(JUDGE_TRANSCRIPT_MAX, int(st["throttle"].get("transcript_max_chars") or 40000)),

@@ -146,7 +146,7 @@ export const api = {
 
 	// feeds
 	home: (perRow = 20) => get<HomeRow[]>(`/feed/home${q({ per_row: perRow })}`),
-	categoryFeed: (id: number, status: 'accepted' | 'pending' | 'rejected' | 'all' = 'accepted', o: { offset?: number; limit?: number; include_watched?: boolean } = {}) =>
+	categoryFeed: (id: number, status: 'accepted' | 'pending' | 'rejected' | 'all' = 'accepted', o: { offset?: number; limit?: number; include_watched?: boolean; after?: string } = {}) =>
 		get<Candidate[]>(`/feed/category/${id}${q({ status, ...o })}`),
 	dismissCandidate: (id: number) => post<{ ok: boolean }>(`/candidates/${id}/dismiss`),
 	addCandidate: (video_id: string, category_id: number) => post<{ ok: boolean }>('/candidates', { video_id, category_id }),

@@ -9,6 +9,10 @@ Self-hosted, ad-free YouTube front-end with a background AI curator.
 - **AI curator** – a slow, throttled background worker asks your local LLM (OpenAI-compatible) to plan
   searches per category, reads metadata, transcript, top comments and thumbnail, judges fit, and learns
   from feedback ("they were mean to the cat") as editable *lessons*. Live status + pause button always visible.
+- **Playlist pacing** – discovery balances the interests in each brief; accepted picks are ordered to
+  space out similar topics and creators, with a small breather between long videos. Quality stays prominent.
+  Home and category pages share the same order, and autoplay considers the current video. Existing queues
+  benefit immediately; new verdicts add consistent subject/format tags for better spacing.
 - **10-foot UI** – remote-control spatial navigation (arrows / OK / back), on-screen keyboard, installable PWA.
 
 ## Layout

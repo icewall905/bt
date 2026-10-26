@@ -148,7 +148,7 @@
 		}, () => {});
 		detailP.then(() => {});
 		const cid = catId ?? null;
-		if (cid) api.categoryFeed(cid, 'accepted', { limit: 12 }).then((l) => seq === loadSeq && (upNext = l.filter((c) => c.video.id !== vid)), () => {});
+		if (cid) api.categoryFeed(cid, 'accepted', { limit: 12, after: vid }).then((l) => seq === loadSeq && (upNext = l.filter((c) => c.video.id !== vid)), () => {});
 	}
 
 	/** Stream through Shaka (DASH), falling back to the progressive proxy. Returns false if superseded. */

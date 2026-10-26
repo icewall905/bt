@@ -481,6 +481,31 @@ def test_queue_context_reaches_judge_and_planner():
     assert "Space Vid A" in p and "CURRENT QUEUE" in p and "VARIETY" in prompts.PLANNER_SYSTEM
 
 
+def test_rich_queue_context_is_bounded_and_isolated():
+    cat = make_category()
+    other = make_category(name="Other category")
+    with session() as s:
+        for i in range(42):
+            vid = f"q{i:010d}"  # eleven-character deterministic test IDs
+            s.add(Video(id=vid, title=f"Queue {i}", channel_id=f"UC{i:08d}",
+                        channel_name=f"Creator {i}", duration_s=61 + i,
+                        tags=["topic", "experiment", f"subtopic-{i}"]))
+            s.add(Candidate(category_id=cat.id, video_id=vid, status="accepted",
+                            judged_at=now() + timedelta(seconds=i), dismissed=(i == 1),
+                            tags=["topic", "experiment", f"subtopic-{i}"]))
+        s.add(Video(id="other000001", title="Other category video", channel_id="OTHER"))
+        s.add(Candidate(category_id=other.id, video_id="other000001", status="accepted", judged_at=now()))
+        s.add(WatchHistory(profile_id=cat.profile_id, video_id="q0000000000", finished=True))
+        s.commit()
+        queue = data.queue_context(s, cat.id, cat.profile_id)
+
+    assert len(queue) == 40
+    assert all(" — Creator " in item and "topics: topic, experiment" in item for item in queue)
+    assert any("Queue 2 — Creator 2 — 1:03" in item for item in queue)
+    assert not any(item.startswith("Queue 0 —") or item.startswith("Queue 1 —") or
+                   item.startswith("Other category") for item in queue)
+
+
 def test_rejections_with_reasons_reach_judge_and_planner():
     cat = make_category()
     with session() as s:

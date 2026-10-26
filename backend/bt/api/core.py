@@ -9,6 +9,7 @@ from sqlmodel import Session, col, delete, func, select
 
 from ..config import COOKIES_PATH, DEFAULT_SETTINGS
 from ..db import emit, get_session, get_settings, save_setting, yt_request_counts
+from ..playlist import order_playlist
 from ..models import (Candidate, Category, Channel, Download, Feedback, Lesson, Profile, ProfileChannel, Video,
                       WatchHistory, YtRequest, now)
 
@@ -220,7 +221,8 @@ def _watched_ids(s: Session, pid: int) -> set[str]:
 
 @router.get("/feed/category/{cid}")
 def category_feed(cid: int, status: str = "accepted", include_watched: bool = False, offset: int = 0,
-                  limit: int = 40, pid: int = Depends(profile_id), s: Session = Depends(get_session)):
+                  limit: int = 40, pid: int = Depends(profile_id), s: Session = Depends(get_session),
+                  after: Optional[str] = None):
     _own_category(s, pid, cid)
     q = select(Candidate, Video).join(Video, Video.id == Candidate.video_id).where(Candidate.category_id == cid)
     if status == "pending":
@@ -233,10 +235,22 @@ def category_feed(cid: int, status: str = "accepted", include_watched: bool = Fa
             watched = _watched_ids(s, pid)
             if watched:
                 q = q.where(col(Candidate.video_id).not_in(watched))
-        q = q.order_by(col(Candidate.score).desc(), col(Candidate.judged_at).desc())
+        q = q.order_by(col(Candidate.score).desc(), col(Candidate.judged_at).desc(), Candidate.id)
     else:
         q = q.order_by(col(Candidate.created_at).desc())
-    rows = s.exec(q.offset(offset).limit(limit)).all()
+    if status == "accepted":
+        recent = []
+        if after:
+            # Resolve inside the owned category, even if the video is now watched.
+            current = s.exec(select(Candidate, Video).join(Video, Video.id == Candidate.video_id).where(
+                Candidate.category_id == cid, Candidate.video_id == after)).first()
+            if current:
+                recent = [current]
+                q = q.where(Candidate.video_id != after)
+        # Order the full eligible queue before slicing so pages and home agree.
+        rows = order_playlist(s.exec(q).all(), recent)[offset:offset + limit]
+    else:
+        rows = s.exec(q.offset(offset).limit(limit)).all()
     off = _offline_ids([c.video_id for c, _ in rows])  # one batched lookup instead of one per card
     out = []
     for c, v in rows:

@@ -219,7 +219,7 @@
 									<button class="btn why" use:focusable={{ group: `row-acts-${v.id}`, onSelect: () => markSeen(v) }}>
 										Seen it
 									</button>
-									<button class="btn why" use:focusable={{ group: `row-acts-${v.id}`, onSelect: () => boring(v, it.category_id) }}>
+									<button class="btn why" use:focusable={{ group: `row-acts-${v.id}`, onSelect: () => boring(v, it.category_id ?? undefined) }}>
 										Boring
 									</button>
 									{#if v.channel_id}

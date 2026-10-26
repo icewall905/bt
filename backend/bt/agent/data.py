@@ -182,6 +182,37 @@ def queue_titles(s: Session, cat_id: int, profile_id: int, n: int = 15) -> list[
     return [t for t in rows if t]
 
 
+def queue_context(s: Session, cat_id: int, profile_id: int, n: int = 40) -> list[str]:
+    """Rich, bounded context for curation prompts.
+
+    Keep ``queue_titles`` as the small title-only compatibility helper used by
+    callers and tests, while prompts get enough signal to reason about
+    repetition: creator, runtime, and the judge's topic-first tags.
+    """
+    watched = set(s.exec(select(WatchHistory.video_id).where(
+        WatchHistory.profile_id == profile_id, WatchHistory.finished == True)).all())  # noqa: E712
+    q = select(Video, Candidate).join(Candidate, Candidate.video_id == Video.id).where(
+        Candidate.category_id == cat_id, Candidate.status == "accepted",
+        Candidate.dismissed == False)  # noqa: E712
+    if watched:
+        q = q.where(col(Candidate.video_id).not_in(watched))
+    rows = s.exec(q.order_by(col(Candidate.judged_at).desc(), col(Candidate.id).desc()).limit(n)).all()
+    out = []
+    for v, candidate in rows:
+        tags = [str(t).strip().lower() for t in (candidate.tags or []) if str(t).strip()]
+        topic = ", ".join(tags[:6]) or "(untagged)"
+        creator = v.channel_name or v.channel_id or "unknown creator"
+        out.append(f"{v.title} — {creator} — {_duration_label(v.duration_s)} — topics: {topic}")
+    return out
+
+
+def _duration_label(seconds: Optional[int]) -> str:
+    seconds = int(seconds or 0)
+    if seconds <= 0:
+        return "duration unknown"
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
 def recent_dislikes(s: Session, profile_id: int, n: int = 8) -> list[str]:
     rows = s.exec(select(Feedback, Video).join(Video, Video.id == Feedback.video_id, isouter=True)
                   .where(Feedback.profile_id == profile_id, Feedback.rating < 0)

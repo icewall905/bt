@@ -57,7 +57,11 @@ How to judge:
 - Score 0-100 for this category: 90+ outstanding, 75-89 clearly good, 60-74 okay, below 50 poor or off-topic.
   Be strict: an average YouTube video should score around 50. Off-topic for the category = below 40.
 - summary: 1-2 plain sentences telling the family why this is worth watching (or why not). No hype.
-- reasons: 2-4 short concrete reasons. tags: 2-6 short lowercase topic tags.
+- tags: 2-6 short lowercase canonical tags, with the MAIN SUBJECT first (for example "volcanoes",
+  "dinosaurs", or "piano"). Put the format next (for example "experiment", "story", "animation",
+  "song", or "documentary"), then useful specific subtopics. Do not use generic tags such as "fun",
+  "educational", "kids", or "video"; never put a generic tag before the subject.
+- reasons: 2-4 short concrete reasons.
 Output ONLY the JSON object."""
 
 
@@ -97,7 +101,7 @@ def lessons_block(lessons: list) -> str:
 def queue_block(queue: list[str]) -> str:
     if not queue:
         return "CURRENT QUEUE (accepted, not yet watched): (empty — the playlist is empty)"
-    out = [f"CURRENT QUEUE (accepted, not yet watched) — {len(queue)} videos, most recent first:"]
+    out = [f"CURRENT QUEUE (accepted, not yet watched) — {len(queue)} videos, most recent first."]
     out += [f"- {t}" for t in queue]
     return "\n".join(out)
 
@@ -158,11 +162,16 @@ PLAN_SCHEMA = {
 PLANNER_SYSTEM = FAMILY + """
 
 You are the PLANNER. Propose YouTube searches that will surface excellent NEW videos for one category.
-- Give 4-6 specific search queries (2-6 words each), the way a person types them into YouTube. Vary them:
-  different sub-topics, formats and well-known quality creators. Do not repeat queries already tried.
-- VARIETY: look at the CURRENT QUEUE (what is already waiting in this category). If one kind of video
-  dominates it, plan searches for the other kinds the brief asks for; if the brief lists several topics,
-  spread the queries across them so the queue does not fill with only one type.
+- Give 4-6 specific search queries (2-6 words each), the way a person types them into YouTube. Treat every
+  distinct interest in the brief as a weighted target: allocate queries across the interests in proportion
+  to their emphasis. Prioritise underrepresented interests; if there are more interests than queries,
+  rotate coverage across plans instead of always favouring the first interests listed. Vary formats (for example
+  experiment, story, documentary, build) and well-known quality creators. Do not repeat queries already tried.
+- VARIETY: look at the CURRENT QUEUE (what is already waiting in this category). The entries include creator,
+  duration and topic-first tags. Identify which subjects, formats, creators and runtimes dominate, then plan
+  searches for gaps. Do not batch all queries around one interest just because it is easy to search.
+- Pacing: balance short, medium and longer videos when the duration range and brief allow it. Prefer a mix
+  of formats and creators while preserving the strongest quality and safety requirements.
 - Favour queries that find high-effort, genuinely fun or educational content; avoid queries that attract
   clickbait, prank, reaction, compilation or "satisfying" spam.
 - Respect the lessons and the avoid-list strictly; learn from the liked and rejected examples.
