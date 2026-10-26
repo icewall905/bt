@@ -79,3 +79,33 @@ def test_existing_playlist_import_is_direct_and_deduplicated(imported, monkeypat
     with pytest.raises(HTTPException) as exc:
         ytimport.import_feed(body, other.id, s)
     assert exc.value.status_code == 404
+
+
+def test_category_creation_from_playlist_preserves_preferences(imported, monkeypatch):
+    from bt.api.core import CategoryCreateIn, create_category
+    s, pid, entries = imported
+    monkeypatch.setattr(ytimport.llm, 'chat_json', lambda *a, **kw: {
+        'brief': 'Science demonstrations from the imported playlist.', 'seed_queries': ['lab science']})
+    # Public playlist extraction does not require an installed cookie file.
+    monkeypatch.setattr(ytimport, '_require_cookies', lambda: pytest.fail('public playlists need no cookies'))
+    cat = create_category(CategoryCreateIn(
+        name='My science', playlist_url='https://www.youtube.com/playlist?list=PLtest',
+        emoji='🔬', brief='Avoid shouting.', color='#123456', target_queue=40,
+        seed_queries=['physics experiments'], kid_safe=True, enabled=False), pid, s)
+    assert cat.profile_id == pid
+    assert cat.name == 'My science' and cat.emoji == '🔬' and cat.color == '#123456'
+    assert cat.target_queue == 40 and cat.kid_safe and not cat.enabled
+    assert 'Science demonstrations' in cat.brief and 'Avoid shouting.' in cat.brief
+    assert cat.seed_queries == ['lab science', 'physics experiments']
+    rows = s.exec(select(Candidate).where(Candidate.category_id == cat.id)).all()
+    assert len(rows) == len(entries) and all(c.status == 'accepted' for c in rows)
+
+
+def test_category_playlist_generation_failure_is_atomic(imported, monkeypatch):
+    from bt.api.core import CategoryCreateIn, create_category
+    s, pid, _ = imported
+    monkeypatch.setattr(ytimport.llm, 'chat_json', lambda *a, **kw: {'brief': '', 'seed_queries': []})
+    with pytest.raises(HTTPException):
+        create_category(CategoryCreateIn(name='Retry me', playlist_url='https://youtube.com/playlist?list=PLtest'), pid, s)
+    assert s.exec(select(Category)).all() == []
+    assert s.exec(select(Candidate)).all() == []

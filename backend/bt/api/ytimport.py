@@ -117,7 +117,12 @@ def _playlist_brief(entries: list[dict]) -> PlaylistBrief:
 @router.post("/ytimport/feed")
 def import_feed(body: FeedImportBody, pid: int = Depends(profile_id), s: Session = Depends(get_session)):
     """Import trusted starting picks, optionally generating a new self-refilling playlist."""
-    _require_cookies()
+    return _import_feed(body, pid, s)
+
+
+def _import_feed(body: FeedImportBody, pid: int, s: Session, category_values: dict | None = None):
+    if body.source != "playlist":
+        _require_cookies()
     creating = body.category_id is None
     if creating:
         name = (body.playlist_name or "").strip()
@@ -152,6 +157,15 @@ def import_feed(body: FeedImportBody, pid: int = Depends(profile_id), s: Session
                        seed_queries=generated.seed_queries, emoji="🎵",
                        min_duration_s=0, max_duration_s=0, target_queue=len({e["id"] for e in entries}),
                        position=max(positions, default=-1) + 1)
+        if category_values:
+            values = dict(category_values)
+            guidance = values.pop("brief", "").strip()
+            queries = values.pop("seed_queries", [])
+            for key, value in values.items():
+                setattr(cat, key, value)
+            if guidance:
+                cat.brief += "\n\nAdditional preferences from the user:\n" + guidance
+            cat.seed_queries = list(dict.fromkeys([*generated.seed_queries, *queries]))
         s.add(cat)
         s.flush()
     ctx = data.profile_ctx(s, pid)

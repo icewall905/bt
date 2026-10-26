@@ -144,7 +144,7 @@ export const api = {
 	// categories
 	categories: () => get<Category[]>('/categories'),
 	category: (id: number) => get<Category>(`/categories/${id}`),
-	createCategory: (c: Partial<CategoryInput>) => post<Category>('/categories', c),
+	createCategory: (c: Partial<CategoryInput> & { playlist_url?: string }) => post<Category>('/categories', c),
 	updateCategory: (id: number, c: Partial<Category>) => patch<Category>(`/categories/${id}`, c),
 	deleteCategory: (id: number) => del<{ ok: boolean }>(`/categories/${id}`),
 	reorderCategories: (ids: number[]) => post<{ ok: boolean }>('/categories/reorder', ids),

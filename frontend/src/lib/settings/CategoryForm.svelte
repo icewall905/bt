@@ -37,6 +37,7 @@
 	// svelte-ignore state_referenced_locally
 	let f = $state<CategoryInput>({ ...DEFAULTS, ...(preset ?? {}), ...(category ? pick(category) : {}) });
 	let busy = $state(false);
+	let playlistUrl = $state('');
 	let confirmDel = $state(false);
 	let minMin = $state(Math.round(f.min_duration_s / 60));
 	let maxMin = $state(Math.round(f.max_duration_s / 60));
@@ -48,11 +49,11 @@
 
 	async function save() {
 		if (!f.name.trim()) return toast.warn('Give the category a name.');
-		if (!f.brief.trim()) return toast.warn('Describe what you want in the brief. The AI uses it for every decision.');
+		if (!f.brief.trim() && (category || !playlistUrl.trim())) return toast.warn('Describe what you want in the brief. The AI uses it for every decision.');
 		busy = true;
 		const body = { ...$state.snapshot(f), name: f.name.trim(), min_duration_s: minMin * 60, max_duration_s: Math.max(minMin, maxMin) * 60 };
 		try {
-			const saved = category ? await api.updateCategory(category.id, body) : await api.createCategory(body);
+			const saved = category ? await api.updateCategory(category.id, body) : await api.createCategory({ ...body, playlist_url: playlistUrl.trim() || undefined });
 			await session.loadCategories();
 			toast.success(category ? `Saved ${saved.name}` : `Created ${saved.name}. The AI will start looking soon.`);
 			onDone(saved);
@@ -92,7 +93,10 @@ Simple, fun science for kids 5–9: Mark Rober, cat videos, experiments, space, 
 		<div class="grow"><TextField label="Name" bind:value={f.name} placeholder="e.g. Science for kids" autofocus id="cat-name" /></div>
 	</div>
 
-	<TextField multiline rows={7} label="Brief for the AI" hint="The most important field. Say what you want, what to avoid, and who is watching." bind:value={f.brief} placeholder={BRIEF_PLACEHOLDER} id="cat-brief" />
+    {#if !category}
+        <TextField label="Initial playlist URL (optional)" bind:value={playlistUrl} placeholder="https://www.youtube.com/playlist?list=PL…" hint="Import up to 200 starting videos and let AI generate the prompt from all of them. Imported videos skip judging; future replacements use your Keep ready setting. Public playlists work without cookies; private playlists need cookies in Settings → Cookies." id="cat-playlist" />
+    {/if}
+	<TextField multiline rows={7} label="Brief for the AI" hint={playlistUrl.trim() && !category ? "Optional extra preferences to add to the generated prompt." : "The most important field. Say what you want, what to avoid, and who is watching."} bind:value={f.brief} placeholder={BRIEF_PLACEHOLDER} id="cat-brief" />
 
 	<div class="two">
 		<ChipInput label="Seed searches" hint="Starting points for the AI's YouTube searches. It will invent more." bind:values={f.seed_queries} placeholder="egg drop experiment" />
@@ -126,7 +130,7 @@ Simple, fun science for kids 5–9: Mark Rober, cat videos, experiments, space, 
 		{/if}
 		<span class="spacer"></span>
 		<button class="btn" use:focusable={{ group: 'cat-form-acts', onSelect: () => onDone() }}>Cancel</button>
-		<button class="btn primary big" disabled={busy} use:focusable={{ group: 'cat-form-acts', id: 'cat-save', onSelect: save }}>{category ? 'Save category' : 'Create category'}</button>
+		<button class="btn primary big" disabled={busy} use:focusable={{ group: 'cat-form-acts', id: 'cat-save', onSelect: save }}>{busy ? (playlistUrl.trim() && !category ? 'Importing & generating prompt…' : 'Saving…') : category ? 'Save category' : 'Create category'}</button>
 	</div>
 </div>
 

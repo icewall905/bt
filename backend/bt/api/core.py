@@ -169,10 +169,21 @@ def list_categories(pid: int = Depends(profile_id), s: Session = Depends(get_ses
     return [{**c.model_dump(), "stats": _category_stats(s, c.id)} for c in cats]
 
 
+class CategoryCreateIn(CategoryIn):
+    playlist_url: Optional[str] = None
+
+
 @router.post("/categories")
-def create_category(body: CategoryIn, pid: int = Depends(profile_id), s: Session = Depends(get_session)):
+def create_category(body: CategoryCreateIn, pid: int = Depends(profile_id), s: Session = Depends(get_session)):
+    values = body.model_dump(exclude={"playlist_url"})
+    if body.playlist_url and body.playlist_url.strip():
+        from .ytimport import FeedImportBody, _import_feed
+        result = _import_feed(FeedImportBody(playlist_name=body.name, source="playlist",
+                                           playlist_url=body.playlist_url.strip(), limit=200),
+                              pid, s, category_values=values)
+        return s.get(Category, result["category_id"])
     pos = s.exec(select(func.count()).select_from(Category).where(Category.profile_id == pid)).one()
-    c = Category(**body.model_dump(), profile_id=pid, position=pos)
+    c = Category(**values, profile_id=pid, position=pos)
     s.add(c)
     s.commit()
     s.refresh(c)
