@@ -17,13 +17,25 @@ from typing import Any
 import yt_dlp
 
 from .config import COOKIES_PATH, POT_URL
-from .db import log_yt_request
+from .db import get_settings, log_yt_request
 from .models import Video, now
 
 log = logging.getLogger("bt.ytdl")
 
 INFO_TTL_S = 4 * 3600
 SHORT_MAX_S = 60
+
+_PROXY_SCHEMES = ("http", "https", "socks4", "socks5", "socks5h")
+
+
+def yt_proxy() -> str:
+    """The `throttle.proxy` setting ("" = direct). Read live so Settings edits apply at once;
+    values without a known scheme are ignored with a warning (yt-dlp would fail every request)."""
+    raw = str((get_settings().get("throttle") or {}).get("proxy") or "").strip()
+    if raw and not re.match(r"(https?|socks[45]h?)://", raw):
+        log.warning("ignoring invalid proxy setting %r (expected http(s):// or socks[45]:// URL)", raw)
+        return ""
+    return raw
 
 
 class YtError(Exception):
@@ -99,6 +111,8 @@ def _opts(**extra) -> dict:
     }
     if COOKIES_PATH.exists():
         o["cookiefile"] = str(COOKIES_PATH)
+    if p := yt_proxy():
+        o["proxy"] = p
     o.update(extra)
     return o
 

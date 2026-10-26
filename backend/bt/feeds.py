@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import httpx
 
 from .db import log_yt_request
-from .ytdl import YtBlocked, YtError, YtUnavailable
+from .ytdl import YtBlocked, YtError, YtUnavailable, yt_proxy
 
 FEED_URL = "https://www.youtube.com/feeds/videos.xml"
 NS = {"a": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015",
@@ -61,7 +61,7 @@ def channel_feed(channel_id: str, origin: str = "worker") -> list[dict]:
     """Latest ~15 uploads as entry dicts (duration unknown = 0). Raises YtBlocked/YtUnavailable/YtError."""
     try:
         r = httpx.get(FEED_URL, params={"channel_id": channel_id}, headers={"User-Agent": UA}, timeout=15,
-                      follow_redirects=True)
+                      follow_redirects=True, proxy=yt_proxy() or None)
         r.raise_for_status()
         entries = parse_feed(r.content)
     except Exception as e:

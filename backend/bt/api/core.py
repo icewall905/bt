@@ -621,9 +621,11 @@ def mark_seen(body: SeenIn, pid: int = Depends(profile_id), s: Session = Depends
 # ---------- settings
 
 def _redact(st: dict) -> dict:
-    st = {**st, "llm": {**st["llm"]}}
+    st = {**st, "llm": {**st["llm"]}, "throttle": {**st["throttle"]}}
     if st["llm"].get("api_key"):
         st["llm"]["api_key"] = "********"
+    if st["throttle"].get("proxy") and "@" in st["throttle"]["proxy"]:
+        st["throttle"]["proxy"] = "********"  # proxy URLs can carry user:pass
     return st
 
 
@@ -641,6 +643,8 @@ def write_settings(key: str, value: dict, s: Session = Depends(get_session)):
     cur = get_settings(s)[key]
     if key == "llm" and value.get("api_key") == "********":
         value["api_key"] = cur.get("api_key", "")
+    if key == "throttle" and value.get("proxy") == "********":
+        value["proxy"] = cur.get("proxy", "")
     save_setting(key, {**cur, **value}, s)
     return _redact(get_settings(s))[key]
 

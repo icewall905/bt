@@ -4,5 +4,7 @@ sqlmodel==0.0.48
 httpx==0.28.1
 itsdangerous==2.2.0
 yt-dlp[default]==2026.10.21
+pysocks==1.7.1
+socksio==1.0.0
 bgutil-ytdlp-pot-provider==2.0.2
 pytest==8.4.2

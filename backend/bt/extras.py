@@ -14,6 +14,7 @@ from pathlib import Path
 import httpx
 
 from .config import DATA_DIR
+from .ytdl import yt_proxy
 
 log = logging.getLogger("bt.extras")
 
@@ -160,7 +161,7 @@ def image_host_allowed(url: str) -> bool:
 async def _fetch_image(url: str) -> bytes | None:
     """GET an image, following redirects only to allowed image hosts."""
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=4.0), follow_redirects=False,
-                                 headers={"User-Agent": UA}) as c:
+                                 headers={"User-Agent": UA}, proxy=yt_proxy() or None) as c:
         for _ in range(5):
             if not image_host_allowed(url):
                 return None

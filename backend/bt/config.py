@@ -49,6 +49,7 @@ DEFAULT_SETTINGS: dict = {
         "search_results": 15,
         "max_comments": 40,
         "transcript_max_chars": 40000,
+        "proxy": "",  # route YouTube traffic through this proxy, e.g. socks5://user:pass@host:1080
     },
     "agent": {"enabled": True},
     "player": {

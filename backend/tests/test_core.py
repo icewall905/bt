@@ -280,6 +280,15 @@ def test_settings_and_agent():
     c.put("/api/settings/llm", json={"api_key": "********", "model": "x"})
     from bt.db import get_settings
     assert get_settings()["llm"]["api_key"] == "secret"
+    # proxy with credentials is masked the same way; without credentials it stays visible
+    c.put("/api/settings/throttle", json={"proxy": "socks5://u:p@proxy-nl.privateinternetaccess.com:1080"})
+    assert c.get("/api/settings").json()["throttle"]["proxy"] == "********"
+    c.put("/api/settings/throttle", json={"proxy": "********", "max_per_hour": 99})
+    assert get_settings()["throttle"]["proxy"] == "socks5://u:p@proxy-nl.privateinternetaccess.com:1080"
+    assert c.get("/api/settings").json()["throttle"]["max_per_hour"] == 99
+    c.put("/api/settings/throttle", json={"proxy": "http://gluetun:8888"})
+    assert c.get("/api/settings").json()["throttle"]["proxy"] == "http://gluetun:8888"
+    c.put("/api/settings/throttle", json={"proxy": "", "max_per_hour": 120})
 
     assert c.post("/api/agent/pause").json()["paused"] is True
     assert c.get("/api/agent/status").json()["control"]["paused"] is True

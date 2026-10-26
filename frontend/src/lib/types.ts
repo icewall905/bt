@@ -323,6 +323,7 @@ export interface Settings {
 		backoff_max_s: number;
 		pause_while_playing: boolean;
 		quiet_hours: string;
+		proxy: string;
 		search_results: number;
 		max_comments: number;
 		transcript_max_chars: number;

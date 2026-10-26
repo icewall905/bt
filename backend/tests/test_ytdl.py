@@ -40,6 +40,24 @@ def test_extract_raises_classified(monkeypatch):
     assert logged[0][0] == "search" and logged[0][1] == "user" and logged[0][2] is False
 
 
+def test_proxy_setting_reaches_ytdlp_opts():
+    from bt.db import save_setting
+    save_setting("throttle", {"proxy": "socks5://u:p@proxy-nl.privateinternetaccess.com:1080"})
+    assert ytdl.yt_proxy() == "socks5://u:p@proxy-nl.privateinternetaccess.com:1080"
+    assert ytdl._opts()["proxy"] == "socks5://u:p@proxy-nl.privateinternetaccess.com:1080"
+    save_setting("throttle", {"proxy": ""})
+    assert ytdl.yt_proxy() == ""
+    assert "proxy" not in ytdl._opts()
+
+
+def test_proxy_setting_without_scheme_is_ignored():
+    from bt.db import save_setting
+    save_setting("throttle", {"proxy": "proxy-nl.privateinternetaccess.com:1080"})
+    assert ytdl.yt_proxy() == ""
+    assert "proxy" not in ytdl._opts()
+    save_setting("throttle", {"proxy": ""})
+
+
 JSON3 = json.dumps({"events": [
     {"tStartMs": 0, "dDurationMs": 1000},  # window event without segs
     {"tStartMs": 100, "dDurationMs": 2000, "segs": [{"utf8": "hello "}, {"utf8": "world"}]},

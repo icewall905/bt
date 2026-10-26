@@ -106,6 +106,7 @@
 	</div>
 	<Toggle label="Pause while someone is watching" hint="Keeps the internet connection free for playback and avoids two kinds of YouTube traffic at once." bind:checked={th.value.pause_while_playing} />
 	<TextField label="Quiet hours" hint='No curator work in this window, e.g. "01:00-07:00". Leave empty for none.' bind:value={th.value.quiet_hours} placeholder="01:00-07:00" group="quiet" />
+	<TextField label="YouTube proxy" hint="Route every YouTube request through a proxy so your IP is not the one YouTube sees. PIA subscribers: socks5://user:pass@proxy-nl.privateinternetaccess.com:1080 (generate proxy credentials in the PIA dashboard). Leave empty for a direct connection." bind:value={th.value.proxy} placeholder="socks5://user:pass@host:1080" type="password" group="proxy" />
 	<div class="one">
 		<Stepper label="Results per search" hint="How many videos the AI looks at per search." bind:value={th.value.search_results} min={5} max={50} step={1} />
 		<Stepper label="Comments to read" hint="Top comments often reveal what a video is really like." bind:value={th.value.max_comments} min={0} max={200} step={5} />
