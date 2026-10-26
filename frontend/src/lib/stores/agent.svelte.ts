@@ -129,9 +129,12 @@ class AgentStore {
 		return this.control.paused ? this.resume() : this.pause();
 	}
 
-	/** Seconds until `state.until`, or null. */
+	/** Seconds until the real wait end, or null. During backoff the worker wakes every minute for
+	 * non-YouTube work, so `until` is only the current 60s chunk — prefer the actual backoff end. */
 	secondsLeft = $derived.by(() => {
-		const u = this.state.until || (this.state.state === 'backoff' ? this.state.backoff_until : null);
+		const u = this.state.state === 'backoff'
+			? (this.state.backoff_until || this.state.until_end || this.state.until)
+			: this.state.until;
 		if (!u) return null;
 		const t = Date.parse(u.endsWith('Z') || u.includes('+') ? u : u + 'Z');
 		if (Number.isNaN(t)) return null;

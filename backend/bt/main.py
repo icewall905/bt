@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from . import auth
 from .api import agent as agent_api
 from .api import core
+from .api import proxy as proxy_api
 from .api import video
 from .api import downloads
 from .config import STATIC_DIR
@@ -23,6 +24,7 @@ app = FastAPI(title="BetterTube", docs_url="/api/docs", openapi_url="/api/openap
 app.add_middleware(auth.AuthMiddleware)
 app.include_router(auth.router, prefix="/api")
 app.include_router(core.router, prefix="/api")
+app.include_router(proxy_api.router, prefix="/api")
 app.include_router(video.router, prefix="/api")
 app.include_router(downloads.router, prefix="/api")
 

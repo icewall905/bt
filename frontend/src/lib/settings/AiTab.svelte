@@ -1,12 +1,14 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import { focusable } from '$lib/nav';
 	import { agent, STATE_LABEL } from '$lib/stores/agent.svelte';
-	import type { LlmTestResult } from '$lib/types';
+	import type { LlmTestResult, ProxyProvider, ProxyTestResult } from '$lib/types';
 	import Section from './Section.svelte';
 	import SaveBar from './SaveBar.svelte';
 	import { SettingsDraft } from './useSettings.svelte';
 	import TextField from '$lib/components/form/TextField.svelte';
+	import Select from '$lib/components/form/Select.svelte';
 	import Toggle from '$lib/components/form/Toggle.svelte';
 	import Slider from '$lib/components/form/Slider.svelte';
 	import Stepper from '$lib/components/form/Stepper.svelte';
@@ -35,6 +37,115 @@
 
 	const mins = (s: number) => (s >= 3600 ? `${(s / 3600).toFixed(s % 3600 ? 1 : 0)} h` : s >= 60 ? `${Math.round(s / 60)} min` : `${s} s`);
 	const perHourAvg = $derived(Math.round(3600 / Math.max(1, (th.value.min_delay_s + th.value.max_delay_s) / 2)));
+
+	// ---- YouTube proxy helpers ---------------------------------------------
+	const PROVIDERS = [
+		{ value: 'direct', label: 'Direct' },
+		{ value: 'pia', label: 'PIA' },
+		{ value: 'mullvad', label: 'Mullvad' },
+		{ value: 'local', label: 'Local VPN' },
+		{ value: 'custom', label: 'Custom' }
+	] as const;
+	const catalog = $state<Record<string, ProxyProvider | undefined>>({});
+	const px = $state({ provider: 'direct', user: '', pass: '', region: '', scheme: 'http', host: '', port: '8000', custom: '' });
+
+	onMount(async () => {
+		try {
+			const { providers } = await api.proxyProviders();
+			for (const p of providers) catalog[p.id] = p;
+		} catch {
+			// the picker still works without the region lists
+		}
+	});
+
+	/** Which helper + fields correspond to a stored proxy URL (credentials come back masked). */
+	function parseProxy(url: string) {
+		px.provider = 'direct';
+		px.user = px.pass = px.region = px.host = px.custom = '';
+		px.scheme = 'http';
+		px.port = '8000';
+		if (!url) return;
+		px.provider = 'custom';
+		px.custom = url;
+		try {
+			const u = new URL(url);
+			px.user = decodeURIComponent(u.username || '');
+			px.pass = decodeURIComponent(u.password || '');
+			const h = u.hostname || '';
+			if (h.endsWith('.privateinternetaccess.com')) {
+				px.provider = 'pia';
+				px.region = h.replace(/^proxy-/, '').replace(/\.privateinternetaccess\.com$/, '');
+				px.custom = '';
+			} else if (h.endsWith('.mullvad.net')) {
+				px.provider = 'mullvad';
+				px.region = h.replace(/-wg-socks5\.mullvad\.net$/, '');
+				px.custom = '';
+			}
+		} catch {
+			/* not a parseable URL: keep it as the raw custom value */
+		}
+	}
+
+	/** Build the URL for the selected provider. Empty string = direct. */
+	function composeProxy(): string {
+		switch (px.provider) {
+			case 'pia':
+				return px.user && px.pass
+					? `socks5://${encodeURIComponent(px.user)}:${encodeURIComponent(px.pass)}@proxy-${px.region || 'nl'}.privateinternetaccess.com:1080`
+					: '';
+			case 'mullvad':
+				return px.pass
+					? `socks5://m:${encodeURIComponent(px.pass)}@${px.region || 'se-sto'}-wg-socks5.mullvad.net:1080`
+					: '';
+			case 'local':
+				return px.host ? `${px.scheme}://${px.host.trim()}:${px.port.trim() || '8000'}` : '';
+			case 'custom':
+				return px.custom.trim();
+			default:
+				return '';
+		}
+	}
+
+	parseProxy(th.value.proxy ?? '');
+
+	$effect(() => {
+		th.value.proxy = composeProxy();
+	});
+
+	function pickProvider(p: string) {
+		px.provider = p;
+		if (p === 'pia' && !px.region) px.region = 'nl';
+		if (p === 'mullvad' && !px.region) px.region = 'se-sto';
+		if (p === 'local' && !px.port) px.port = '8000';
+	}
+
+	let proxyTesting = $state(false);
+	let proxyResult = $state<ProxyTestResult | null>(null);
+	let proxyMs = $state(0);
+
+	async function testProxy() {
+		const url = th.value.proxy?.trim();
+		if (!url) {
+			proxyResult = { ok: false, error: 'Nothing to test yet — fill in the proxy details first.' };
+			return;
+		}
+		proxyTesting = true;
+		proxyResult = null;
+		const t0 = performance.now();
+		try {
+			proxyResult = await api.proxyTest(url);
+		} catch (e) {
+			proxyResult = { ok: false, error: (e as Error).message };
+		} finally {
+			proxyMs = Math.round(performance.now() - t0);
+			proxyTesting = false;
+		}
+	}
+
+	async function saveThrottle() {
+		await th.save('Limits saved');
+		parseProxy(th.value.proxy ?? ''); // credentials come back masked after saving
+	}
 </script>
 
 <Section title="AI model" intro="BetterTube talks to any OpenAI-compatible server: llama.cpp, Ollama, vLLM, LM Studio or a hosted API. The model reads transcripts and comments, so a long context window helps.">
@@ -106,13 +217,68 @@
 	</div>
 	<Toggle label="Pause while someone is watching" hint="Keeps the internet connection free for playback and avoids two kinds of YouTube traffic at once." bind:checked={th.value.pause_while_playing} />
 	<TextField label="Quiet hours" hint='No curator work in this window, e.g. "01:00-07:00". Leave empty for none.' bind:value={th.value.quiet_hours} placeholder="01:00-07:00" group="quiet" />
-	<TextField label="YouTube proxy" hint="Route every YouTube request through a proxy so your IP is not the one YouTube sees. PIA subscribers: socks5://user:pass@proxy-nl.privateinternetaccess.com:1080 (generate proxy credentials in the PIA dashboard). Leave empty for a direct connection." bind:value={th.value.proxy} placeholder="socks5://user:pass@host:1080" type="password" group="proxy" />
+	<div class="proxy panel">
+		<div>
+			<span class="small faint">Route all YouTube traffic through a proxy, so the IP YouTube sees is not this server's.</span>
+			<div class="hstack">
+				{#each PROVIDERS as p}
+					<button class="chip" class:on={px.provider === p.value} use:focusable={{ group: 'px-prov', onSelect: () => pickProvider(p.value) }}>{p.label}</button>
+				{/each}
+			</div>
+		</div>
+		{#if catalog[px.provider]?.hint && px.provider !== 'direct'}
+			<p class="small muted">{catalog[px.provider]?.hint}</p>
+		{/if}
+		{#if px.provider === 'pia' || px.provider === 'mullvad'}
+			{#if px.provider === 'pia'}
+				<div class="two">
+					<TextField label="Proxy username" bind:value={px.user} placeholder="x1234567890" group="px" />
+					<TextField label="Proxy password" hint="Generate proxy credentials in the PIA dashboard." type="password" bind:value={px.pass} group="px" />
+				</div>
+			{:else}
+				<TextField label="Account number" hint="The 16-digit number from the Mullvad app; the username can be anything." type="password" bind:value={px.pass} placeholder="1234 1234 1234 1234" group="px" />
+			{/if}
+			<Select
+				label="Region"
+				bind:value={px.region}
+				group="px"
+				options={(catalog[px.provider]?.regions ?? []).map((r) => ({ value: r.id, label: r.name }))}
+			/>
+		{:else if px.provider === 'local'}
+			<div class="two">
+				<Select label="Type" bind:value={px.scheme} group="px" options={[{ value: 'http', label: 'HTTP' }, { value: 'socks5', label: 'SOCKS5' }]} />
+				<TextField label="Host" hint="On this server's network, e.g. the gluetun container." bind:value={px.host} placeholder="gluetun" group="px" />
+				<TextField label="Port" bind:value={px.port} placeholder="8000" group="px" />
+			</div>
+		{:else if px.provider === 'custom'}
+			<TextField label="Proxy URL" hint="Any http(s) or socks5 URL. Saved credentials are never shown again." bind:value={px.custom} type="password" placeholder="socks5://user:pass@host:1080" group="px" />
+		{:else}
+			<p class="small muted">All YouTube requests go straight out from this server. That is the default and works fine at these request rates.</p>
+		{/if}
+		<div class="test-row">
+			<button class="btn" disabled={proxyTesting || !th.value.proxy} use:focusable={{ group: 'px-test', id: 'px-test', onSelect: testProxy }}>
+				{#if proxyTesting}<span class="spin"></span> Testing…{:else}Test this proxy{/if}
+			</button>
+			<p class="small faint">Fetches one YouTube channel feed through the proxy using the values above, before you save. Counts as one YouTube request.</p>
+		</div>
+		{#if proxyResult}
+			<div class="result" class:ok={proxyResult.ok} class:bad={!proxyResult.ok} role="status">
+				{#if proxyResult.ok}
+					<div class="rh"><span class="big">✓</span><div><strong>Works</strong><div class="small muted">YouTube answered in {(proxyMs / 1000).toFixed(1)} s through this proxy.</div></div></div>
+				{:else}
+					<div class="rh"><span class="big">✕</span><div><strong>Could not use this proxy</strong></div></div>
+					{#if proxyResult.error}<code class="err">{proxyResult.error}</code>{/if}
+					{#if proxyResult.hint}<p class="small muted">{proxyResult.hint}</p>{/if}
+				{/if}
+			</div>
+		{/if}
+	</div>
 	<div class="one">
 		<Stepper label="Results per search" hint="How many videos the AI looks at per search." bind:value={th.value.search_results} min={5} max={50} step={1} />
 		<Stepper label="Comments to read" hint="Top comments often reveal what a video is really like." bind:value={th.value.max_comments} min={0} max={200} step={5} />
 		<Stepper label="Transcript length" hint="Longer gives the AI more to judge with, but is slower." bind:value={th.value.transcript_max_chars} min={2000} max={200000} step={2000} format={(v) => `${Math.round(v / 1000)}k chars`} />
 	</div>
-	<SaveBar dirty={th.dirty} busy={th.busy} onsave={() => th.save('Limits saved')} onreset={() => th.reset()} />
+	<SaveBar dirty={th.dirty} busy={th.busy} onsave={saveThrottle} onreset={() => { th.reset(); parseProxy(th.value.proxy ?? ''); }} />
 </Section>
 
 <style>
@@ -129,6 +295,10 @@
 	.one {
 		display: grid;
 		gap: 0.75rem;
+	}
+	.proxy {
+		display: grid;
+		gap: 0.9rem;
 	}
 	.test-row {
 		display: flex;

@@ -16,7 +16,9 @@
 	const cat = $derived(session.categoryById(agent.state.category_id ?? null));
 	const extra = $derived.by(() => {
 		if (st === 'sleeping' && agent.secondsLeft != null) return `next in ${fmtCountdown(agent.secondsLeft)}`;
-		const bu = agent.state.until || agent.state.backoff_until;
+		const bu = st === 'backoff'
+			? (agent.state.backoff_until || agent.state.until_end || agent.state.until)
+			: agent.state.until;
 		if (st === 'backoff' && bu) return `until ${clockTime(bu)}`;
 		if (st === 'paused' || st === 'offline') return '';
 		return cleanDetail(st, agent.state.detail);

@@ -45,6 +45,7 @@
 		agent.events.filter((e) => e.level !== 'debug' && (filter === 'all' || (filter === 'picks' ? e.kind === 'accept' || e.kind === 'reject' : e.level === 'warn' || e.level === 'error')))
 	);
 	const totalSecs = $derived.by(() => {
+		if (st === 'backoff') return null; // the end time is what matters; a bar would reset every wake
 		const u = agent.state.until;
 		const upd = agent.state.updated_at;
 		if (!u || !upd) return null;
@@ -107,7 +108,7 @@
 			{#if agent.secondsLeft != null && (st === 'sleeping' || st === 'backoff' || st === 'waiting')}
 				<div class="count">
 					<span class="num">{fmtCountdown(agent.secondsLeft)}</span>
-					<span class="muted small">{st === 'backoff' ? `YouTube asked us to slow down. Resuming at ${clockTime(agent.state.until || agent.state.backoff_until)}.` : 'until the next step. Short random pauses keep YouTube from flagging the server.'}</span>
+					<span class="muted small">{st === 'backoff' ? `YouTube asked us to slow down. Resuming at ${clockTime(agent.state.backoff_until || agent.state.until_end || agent.state.until || '')}.` : 'until the next step. Short random pauses keep YouTube from flagging the server.'}</span>
 				</div>
 				{#if totalSecs}
 					<div class="cbar"><span style:width="{100 - pct(agent.secondsLeft, totalSecs)}%"></span></div>

@@ -76,8 +76,9 @@ class RateLimiter:
         rt, th, t = self.rt, self.rt.throttle(), now()
         if rt.backoff_until:
             if rt.backoff_until > t:
+                # no clock time here: the frontend shows the end in the viewer's timezone
                 return ((rt.backoff_until - t).total_seconds(), "backoff",
-                        f"YouTube bot-check — backing off until {rt.backoff_until.astimezone():%H:%M}")
+                        "YouTube bot-check — backing off")
             rt.backoff_until = None  # expired; n is kept until the next success
         q = quiet_remaining(th.get("quiet_hours") or "")
         if q > 0:
@@ -154,6 +155,6 @@ class RateLimiter:
         human = f"{secs / 3600:.1f}h".replace(".0h", "h") if secs >= 3600 else f"{int(secs // 60)} min"
         rt.event("backoff", f"🛑 YouTube bot-check — backing off {human}", "error", category,
                  payload={"error": str(err)[:500], "seconds": secs, "n": rt.backoff_n, "until": iso(rt.backoff_until)})
-        rt.state("backoff", f"YouTube bot-check — backing off until {rt.backoff_until.astimezone():%H:%M}", category,
+        rt.state("backoff", "YouTube bot-check — backing off", category,
                  until=iso(rt.backoff_until))
         return secs

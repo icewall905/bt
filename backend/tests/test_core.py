@@ -271,6 +271,30 @@ def test_block_channel_dismisses():
                             "channel_id": "UCgood"}, cat_obj, ctx, False) is None
 
 
+def test_proxy_provider_catalog():
+    c = client()
+    provs = c.get("/api/proxy/providers").json()["providers"]
+    by_id = {p["id"]: p for p in provs}
+    assert by_id["pia"]["scheme"] == "socks5" and by_id["pia"]["port"] == 1080
+    assert "nl" in [r["id"] for r in by_id["pia"]["regions"]]
+    assert by_id["pia"]["host"].format(region="nl") == "proxy-nl.privateinternetaccess.com"
+    assert by_id["mullvad"]["host"].format(region="se-sto") == "se-sto-wg-socks5.mullvad.net"
+    assert "http" in by_id["local"]["schemes"]
+
+
+def test_proxy_test_rejects_bad_urls():
+    c = client()
+    assert c.post("/api/proxy/test", json={"url": "proxy-nl.example.com:1080"}).status_code == 400
+    assert c.post("/api/proxy/test", json={"url": "ftp://x:1"}).status_code == 400
+
+
+def test_proxy_test_unreachable_proxy_reports_error():
+    c = client()
+    res = c.post("/api/proxy/test", json={"url": "socks5://u:p@127.0.0.1:9"}).json()
+    assert res["ok"] is False and res["error"]
+    assert "reach the proxy" in res["hint"]
+
+
 def test_settings_and_agent():
     c = client()
     st = c.get("/api/settings").json()

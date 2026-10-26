@@ -205,6 +205,7 @@ export interface AgentState {
 	state: AgentStateName | string;
 	detail?: string;
 	until?: string | null;
+	until_end?: string | null;
 	category_id?: number | null;
 	video_id?: string | null;
 	title?: string | null;
@@ -356,6 +357,31 @@ export interface LlmTestResult {
 	models?: string[];
 	reply?: string;
 	error?: string;
+}
+
+export interface ProxyRegion {
+	id: string;
+	name: string;
+}
+
+export interface ProxyProvider {
+	id: string;
+	label: string;
+	hint?: string;
+	scheme?: string;
+	schemes?: string[];
+	port?: number;
+	default_port?: number;
+	host?: string;
+	regions?: ProxyRegion[];
+}
+
+export interface ProxyTestResult {
+	ok: boolean;
+	ms?: number;
+	detail?: string;
+	error?: string;
+	hint?: string;
 }
 
 export interface StatsCategoryRow {
