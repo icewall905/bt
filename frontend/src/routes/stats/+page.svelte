@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
-	import { session } from '$lib/stores/session.svelte';
 	import { focusable } from '$lib/nav';
 	import { fmtBytes, fmtCount, fmtDuration } from '$lib/util';
-	import type { StatsCategoryRow, StatsPageData } from '$lib/types';
+	import type { StatsPageData } from '$lib/types';
 
 	let data = $state<StatsPageData | null>(null);
 	let days = $state(30);
@@ -37,7 +36,7 @@
 		return m || 1;
 	});
 
-	const catOf = (id: string) => session.categoryById(Number(id));
+	const catOf = (id: string) => cats.find((c) => c.id === Number(id));
 	const shortDate = (iso: string) => iso.slice(5).replace('-', '/');
 	const watchedBreakdown = (d: Record<string, number>) =>
 		Object.entries(d)
@@ -47,10 +46,10 @@
 
 <svelte:head><title>Statistics · BetterTube</title></svelte:head>
 
-<div class="page stack" style="gap:2.2rem">
+<div class="page stack stats" style="gap:2.2rem">
 	<header class="head">
 		<h1>Statistics</h1>
-		<p class="muted">Everything the curator has done for {session.profile?.name ?? 'this profile'}: what is waiting, what was picked, what was rejected and by whom, and what the family actually watched.</p>
+		<p class="muted">Everything the curator has done across all profiles: what is waiting, what was picked, what was rejected and by whom, and what the family actually watched.</p>
 		<div class="hstack">
 			{#each [7, 30, 90] as d}
 				<button class="chip" class:on={days === d} use:focusable={{ group: 'stats-ctl', id: `d-${d}`, onSelect: () => setDays(d) }}>{d} days</button>
@@ -73,7 +72,7 @@
 				<div class="tile"><span class="v">{fmtCount(ov.downloads.done ?? 0)}</span><span class="sub">Offline copies · {fmtBytes(ov.storage_bytes)}</span></div>
 				<div class="tile"><span class="v">{fmtCount(ov.watched)}</span><span class="sub">{fmtDuration(ov.watch_seconds)} watched</span></div>
 				<div class="tile warn"><span class="v">{fmtCount(ov.candidates.rejected_ai)}</span><span>Judge rejected</span></div>
-				<div class="tile warn"><span class="v">{fmtCount(ov.candidates.rejected_family)}</span><span>You rejected</span></div>
+				<div class="tile warn"><span class="v">{fmtCount(ov.candidates.rejected_family)}</span><span>Family rejected</span></div>
 				<div class="tile"><span class="v">{fmtCount(ov.candidates.dismissed)}</span><span>Dismissed</span></div>
 				<div class="tile"><span class="v">{fmtCount(ov.feedback.dislike + ov.feedback.note + ov.feedback.like + ov.feedback.love)}</span><span class="sub">👍 {ov.feedback.like + ov.feedback.love} · 👎 {ov.feedback.dislike}</span></div>
 				<div class="tile"><span class="v">{fmtCount(ov.lessons.active)}</span><span class="sub">Lessons ({ov.lessons.inactive} off)</span></div>
@@ -96,7 +95,7 @@
 								<th>Watched</th>
 								<th>Time watched</th>
 								<th>Judge rejected</th>
-								<th>You rejected</th>
+								<th>Family rejected</th>
 								<th>Dismissed</th>
 								<th>Avg score</th>
 							</tr>
@@ -104,7 +103,7 @@
 						<tbody>
 							{#each cats as c (c.id)}
 								<tr class:off={!c.enabled}>
-									<td><span class="dot" style:--cat={c.color}></span>{c.emoji} {c.name}{#if !c.enabled}<span class="faint tiny"> off</span>{/if}</td>
+									<td><span class="dot" style:--cat={c.color}></span>{c.emoji} {c.name}<span class="profile-name">{c.profile_name}</span>{#if !c.enabled}<span class="faint tiny"> off</span>{/if}</td>
 									<td>
 										<span class="num-s">{c.counts.in_queue}/{c.target}</span>
 										<span class="gauge"><span style:width="{Math.min(100, (c.counts.in_queue / Math.max(1, c.target)) * 100)}%"></span></span>
@@ -139,7 +138,7 @@
 								<th>Found</th>
 								<th>Accepted</th>
 								<th>Judge rejected</th>
-								<th>You rejected</th>
+								<th>Family rejected</th>
 								<th>Feedback</th>
 								<th>Downloads</th>
 								<th>YT reqs</th>
@@ -173,6 +172,16 @@
 </div>
 
 <style>
+    .stats, .stats > *, .twrap {
+        min-width: 0;
+        max-width: 100%;
+    }
+    .profile-name {
+        display: block;
+        color: var(--faint);
+        font-size: 0.8rem;
+        margin-top: 0.2rem;
+    }
 	.head {
 		display: grid;
 		gap: 0.8rem;
@@ -184,7 +193,7 @@
 	}
 	.tiles {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+		grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr));
 		gap: 0.8rem;
 	}
 	.tile {
@@ -215,9 +224,12 @@
 	}
 	.table {
 		width: 100%;
+        min-width: 52rem;
+        table-layout: fixed;
 		border-collapse: collapse;
 		font-size: 0.92rem;
 	}
+    .table th:first-child { width: 20%; }
 	.table th {
 		text-align: left;
 		font-size: 0.78rem;
@@ -225,13 +237,15 @@
 		letter-spacing: 0.04em;
 		color: var(--faint);
 		font-weight: 700;
-		padding: 0.4rem 0.9rem 0.6rem;
-		white-space: nowrap;
+		padding: 0.4rem 0.45rem 0.6rem;
+		white-space: normal;
+        overflow-wrap: anywhere;
 	}
 	.table td {
-		padding: 0.55rem 0.9rem;
+		padding: 0.55rem 0.45rem;
 		border-top: 1px solid var(--line);
-		white-space: nowrap;
+		white-space: normal;
+        overflow-wrap: anywhere;
 	}
 	.table tr.off td {
 		opacity: 0.55;
@@ -261,7 +275,7 @@
 	.gauge {
 		display: inline-block;
 		vertical-align: middle;
-		width: 5.5rem;
+		width: min(100%, 4rem);
 		height: 0.4rem;
 		border-radius: 1rem;
 		background: rgba(255, 255, 255, 0.1);

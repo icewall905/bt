@@ -695,21 +695,24 @@ def stats(pid: int = Depends(profile_id), s: Session = Depends(get_session)):
 
 
 @router.get("/stats/page")
-def stats_page(days: int = 30, pid: int = Depends(profile_id), s: Session = Depends(get_session)):
-    """Everything the Statistics page shows for the active profile, in one payload."""
+def stats_page(days: int = 30, s: Session = Depends(get_session)):
+    """Statistics across every profile, independent of the active profile."""
     days = max(1, min(120, days))
     since = (now() - timedelta(days=days - 1)).date().isoformat()
-    cats = s.exec(select(Category).where(Category.profile_id == pid).order_by(Category.position, Category.id)).all()
+    cats = s.exec(select(Category).order_by(Category.profile_id, Category.position, Category.id)).all()
+    profiles = {p.id: p for p in s.exec(select(Profile)).all()}
+    cat_profiles = {c.id: c.profile_id for c in cats}
     cat_ids = [c.id for c in cats]
     cat_where = col(Candidate.category_id).in_(cat_ids) if cat_ids else col(Candidate.id) < 0
 
     # (video, category) pairs the family disliked: those rejections are the family's, not the AI's
     fam_pairs = {(v, c) for v, c in s.exec(select(Feedback.video_id, Feedback.category_id)
-                                          .where(Feedback.profile_id == pid, Feedback.rating < 0)).all()}
+                                          .where(Feedback.rating < 0)).all()}
 
     # ---------- per-category rows
     per_cat = {c.id: {
-        "id": c.id, "name": c.name, "emoji": c.emoji, "color": c.color, "enabled": c.enabled,
+        "id": c.id, "profile_id": c.profile_id, "profile_name": profiles[c.profile_id].name,
+        "name": c.name, "emoji": c.emoji, "color": c.color, "enabled": c.enabled,
         "target": c.target_queue, "threshold": c.threshold, "avg_score": None, "watch_seconds": 0,
         "counts": {"found": 0, "enriched": 0, "accepted": 0, "in_queue": 0, "rejected_ai": 0,
                    "rejected_family": 0, "dismissed": 0, "error": 0, "watched": 0},
@@ -733,8 +736,8 @@ def stats_page(days: int = 30, pid: int = Depends(profile_id), s: Session = Depe
                            .group_by(Candidate.category_id)).all():
         if cid in per_cat and avg is not None:
             per_cat[cid]["avg_score"] = round(float(avg), 1)
-    watched_vids = set(s.exec(select(WatchHistory.video_id).where(WatchHistory.profile_id == pid,
-                                                                 WatchHistory.finished == True)).all())  # noqa: E712
+    watched_vids = set(s.exec(select(WatchHistory.profile_id, WatchHistory.video_id).where(
+        WatchHistory.finished == True)).all())  # noqa: E712
     acc = {}
     for cid, vid in s.exec(select(Candidate.category_id, Candidate.video_id)
                            .where(cat_where, Candidate.status == "accepted",
@@ -742,9 +745,9 @@ def stats_page(days: int = 30, pid: int = Depends(profile_id), s: Session = Depe
         acc.setdefault(cid, []).append(vid)
     for cid, vids in acc.items():
         if cid in per_cat:
-            per_cat[cid]["counts"]["in_queue"] = sum(1 for v in vids if v not in watched_vids)
+            per_cat[cid]["counts"]["in_queue"] = sum(1 for v in vids if (cat_profiles[cid], v) not in watched_vids)
     for cid, n, secs in s.exec(select(WatchHistory.category_id, func.count(), func.sum(WatchHistory.duration_s))
-                               .where(WatchHistory.profile_id == pid, WatchHistory.finished == True)  # noqa: E712
+                               .where(WatchHistory.finished == True)  # noqa: E712
                                .group_by(WatchHistory.category_id)).all():
         if cid in per_cat:
             per_cat[cid]["counts"]["watched"] = n
@@ -752,7 +755,7 @@ def stats_page(days: int = 30, pid: int = Depends(profile_id), s: Session = Depe
 
     # ---------- overview totals
     fb = {int(r): n for r, n in s.exec(select(Feedback.rating, func.count())
-                                       .where(Feedback.profile_id == pid).group_by(Feedback.rating)).all()}
+                                       .group_by(Feedback.rating)).all()}
     dl = {}
     storage = 0
     for st, n, size in s.exec(select(Download.status, func.count(), func.sum(Download.size_bytes))
@@ -777,22 +780,19 @@ def stats_page(days: int = 30, pid: int = Depends(profile_id), s: Session = Depe
         "feedback": {"love": fb.get(2, 0), "like": fb.get(1, 0), "note": fb.get(0, 0), "dislike": fb.get(-1, 0)},
         "lessons": {
             "active": s.exec(select(func.count()).select_from(Lesson)
-                             .where(Lesson.profile_id == pid, Lesson.active == True)).one(),  # noqa: E712
+                             .where(Lesson.active == True)).one(),  # noqa: E712
             "inactive": s.exec(select(func.count()).select_from(Lesson)
-                               .where(Lesson.profile_id == pid, Lesson.active == False)).one(),  # noqa: E712
+                               .where(Lesson.active == False)).one(),  # noqa: E712
         },
         "watched": s.exec(select(func.count()).select_from(WatchHistory)
-                         .where(WatchHistory.profile_id == pid, WatchHistory.finished == True)).one(),  # noqa: E712
+                         .where(WatchHistory.finished == True)).one(),  # noqa: E712
         "watch_seconds": int(s.exec(select(func.sum(WatchHistory.duration_s))
-                                    .where(WatchHistory.profile_id == pid,
-                                           WatchHistory.finished == True)).one() or 0),  # noqa: E712
+                                    .where(WatchHistory.finished == True)).one() or 0),  # noqa: E712
         "channels": {
             "subscribed": s.exec(select(func.count()).select_from(ProfileChannel)
-                                 .where(ProfileChannel.profile_id == pid,
-                                        ProfileChannel.subscribed == True)).one(),  # noqa: E712
+                                 .where(ProfileChannel.subscribed == True)).one(),  # noqa: E712
             "blocked": s.exec(select(func.count()).select_from(ProfileChannel)
-                               .where(ProfileChannel.profile_id == pid,
-                                      ProfileChannel.blocked == True)).one(),  # noqa: E712
+                               .where(ProfileChannel.blocked == True)).one(),  # noqa: E712
         },
         "budget": {**yt_request_counts(), "max_hour": st_all["max_per_hour"], "max_day": st_all["max_per_day"]},
     }
@@ -810,12 +810,12 @@ def stats_page(days: int = 30, pid: int = Depends(profile_id), s: Session = Depe
             daily[d]["accepted"] = n
     f_expr = func.date(Feedback.created_at)
     for d, n in s.exec(select(f_expr, func.count())
-                       .where(Feedback.profile_id == pid, f_expr >= since).group_by(f_expr)).all():
+                       .where(f_expr >= since).group_by(f_expr)).all():
         if d in daily:
             daily[d]["feedback"] = n
     w_expr = func.date(WatchHistory.updated_at)
     for d, cid, n in s.exec(select(w_expr, WatchHistory.category_id, func.count())
-                            .where(WatchHistory.profile_id == pid, WatchHistory.finished == True,  # noqa: E712
+                            .where(WatchHistory.finished == True,  # noqa: E712
                                    w_expr >= since).group_by(w_expr, WatchHistory.category_id)).all():
         if d in daily:
             daily[d]["watched"] += n

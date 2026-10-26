@@ -377,3 +377,34 @@ def test_settings_and_agent():
     assert c.post("/api/agent/resume").json()["paused"] is False
     emit("search", "hello")
     assert c.get("/api/agent/events").json()[-1]["message"] == "hello"
+
+
+def test_stats_all_profiles_keep_watch_history_separate():
+    c = client()
+    owners = [c.post('/api/profiles', json={'name': name}).json()
+              for name in ('Stats global A', 'Stats global B')]
+    cats = [c.post('/api/categories', json={'name': 'Shared interest'},
+                   headers={'X-Profile-Id': str(p['id'])}).json() for p in owners]
+    with session() as s:
+        s.add(Video(id='globalstat1', title='Shared video', duration_s=600))
+        s.add(Video(id='globalstat2', title='Second profile rejection', duration_s=300))
+        for cat in cats:
+            s.add(Candidate(category_id=cat['id'], video_id='globalstat1', status='accepted',
+                            score=80, judged_at=now()))
+        s.add(Candidate(category_id=cats[1]['id'], video_id='globalstat2', status='rejected', judged_at=now()))
+        s.add(WatchHistory(profile_id=owners[0]['id'], video_id='globalstat1', category_id=cats[0]['id'],
+                           finished=True, duration_s=600))
+        s.add(Feedback(profile_id=owners[1]['id'], category_id=cats[1]['id'], video_id='globalstat2', rating=-1))
+        s.commit()
+    results = [c.get('/api/stats/page?days=7', headers={'X-Profile-Id': str(p['id'])}).json() for p in owners]
+    assert results[0] == results[1]
+    rows = {r['id']: r for r in results[0]['categories']}
+    first, second = (rows[cat['id']] for cat in cats)
+    assert first['profile_name'] == owners[0]['name'] and first['profile_id'] == owners[0]['id']
+    assert second['profile_name'] == owners[1]['name']
+    assert first['counts']['in_queue'] == 0 and first['counts']['watched'] == 1
+    assert second['counts']['in_queue'] == 1 and second['counts']['watched'] == 0
+    assert second['counts']['rejected_family'] == 1
+    assert results[0]['overview']['candidates']['in_queue'] == sum(r['counts']['in_queue'] for r in rows.values())
+    assert results[0]['daily'][-1]['watched_by_category'][str(cats[0]['id'])] == 1
+    assert results[0] == c.get('/api/stats/page?days=7').json()

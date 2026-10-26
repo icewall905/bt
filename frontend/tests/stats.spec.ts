@@ -32,6 +32,13 @@ with session() as s:
     if not s.exec(select(WatchHistory).where(WatchHistory.video_id == "statvid00001")).first():
         s.add(WatchHistory(profile_id=pid, video_id="statvid00001", category_id=cat.id,
                            finished=True, duration_s=600, position_s=600))
+    other = Profile(name="Another stats profile")
+    s.add(other)
+    s.commit()
+    second = Category(profile_id=other.id, name="Another profile category with a deliberately long descriptive name that must stay inside the panel", brief="b")
+    s.add(second)
+    s.commit()
+    s.add(Candidate(category_id=second.id, video_id="statvid00001", status="accepted", score=75, judged_at=now()))
     s.commit()
 `], { cwd: BACKEND, env: { ...process.env, BT_DATA_DIR: DATA! } });
 });
@@ -73,3 +80,30 @@ test('stats page shows queue, category and daily numbers', async ({ page, reques
 	expect(cat.counts.watched).toBe(1);
 	expect(cat.counts.in_queue).toBe(1);
 });
+
+
+for (const width of [1920, 1280, 1024, 768, 390]) {
+    test(`statistics stay within the viewport at ${width}px`, async ({ page, request }) => {
+        await page.setViewportSize({ width, height: 1000 });
+        const profiles = await (await request.get('/api/profiles')).json();
+        await page.goto('/stats');
+        await page.evaluate((id: string) => localStorage.setItem('bt.profile', id), String(profiles[0].id));
+        await page.reload();
+        await expect(page.getByText('Ready in queues')).toBeVisible();
+        const other = page.locator('tr', { hasText: 'Another profile category' });
+        await expect(other).toContainText('Another stats profile');
+        await expect(other.locator('td').nth(1)).toContainText('1/20');
+        const geometry = await page.evaluate(() => ({
+            document: document.documentElement.scrollWidth,
+            panels: [...document.querySelectorAll('section.panel')].map(el => el.getBoundingClientRect().right),
+            tables: [...document.querySelectorAll('.twrap')].map(el => ({ width: el.clientWidth, content: el.scrollWidth }))
+        }));
+        expect(geometry.document).toBeLessThanOrEqual(width + 1);
+        expect(geometry.panels.every(right => right <= width + 1)).toBe(true);
+        if (width >= 1024) expect(geometry.tables.every(t => t.content <= t.width + 1)).toBe(true);
+        if (width === 1280 || width === 390) await page.screenshot({ path: `/tmp/bt-stats-${width}.png`, fullPage: true });
+        const first = await (await request.get('/api/stats/page', { headers: { 'X-Profile-Id': String(profiles[0].id) } })).json();
+        const second = await (await request.get('/api/stats/page', { headers: { 'X-Profile-Id': String(profiles[profiles.length - 1].id) } })).json();
+        expect(first).toEqual(second);
+    });
+}

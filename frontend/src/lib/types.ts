@@ -411,6 +411,8 @@ export interface ImportFeedResult {
 }
 
 export interface StatsCategoryRow {
+	profile_id: number;
+	profile_name: string;
 	id: number;
 	name: string;
 	emoji: string;
