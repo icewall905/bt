@@ -68,7 +68,7 @@
 		if (cid) return dialogs.openCandidate(cid);
 		if (!e.video_id || !e.category_id) return;
 		try {
-			const list = await api.categoryFeed(e.category_id, 'all', { limit: 300, include_watched: true });
+			const list = await api.categoryFeed(e.category_id, 'all', { limit: 300, include_watched: true }, e.profile_id);
 			const c = list.find((x) => x.video.id === e.video_id);
 			if (c) dialogs.openCandidate(c.id);
 			else toast.info('That candidate is no longer stored.');

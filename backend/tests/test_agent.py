@@ -219,6 +219,7 @@ def test_pipeline_found_enriched_judged():
     assert {"plan", "search", "transcript", "comments", "judge", "accept", "reject"} <= kinds
     acc = events("accept")[0]
     assert acc.message.startswith("✅ Accepted (86)") and acc.payload["score"] == 86 and acc.video_id == "vidGOOD0001"
+    assert {e.payload["candidate_id"] for e in events("judge")} == {c.id for c in cs.values()}
     # every candidate-related event links to its candidate (UI opens /api/agent/candidates/{id})
     vid_events = [e for e in events() if e.video_id and e.category_id]
     assert vid_events and all(e.payload.get("candidate_id") == cs[e.video_id].id for e in vid_events)
@@ -461,6 +462,92 @@ def test_lessons_reach_judge_prompt():
         msgs = prompts.judge_messages(cat, v, data.lessons_for(s, cat, "UC"), 0.4, 1000)
     u = msgs[-1]["content"]
     assert "Never pick prank videos" in u and "trust +0.4" in u and "hello" in u and "Kid-safe category: YES" in u
+
+
+def test_prompt_stable_context_precedes_dynamic_queue_and_candidate():
+    cat = make_category()
+    a = Video(id="a" * 11, title="Candidate A", channel_id="UC", transcript="a")
+    b = Video(id="b" * 11, title="Candidate B", channel_id="UC", transcript="b")
+    ja = prompts.judge_messages(cat, a, [], None, 1000, queue=["Queue A"])[-1]["content"]
+    jb = prompts.judge_messages(cat, b, [], None, 1000, queue=["Queue B"])[-1]["content"]
+    assert ja.split("CURRENT QUEUE", 1)[0] == jb.split("CURRENT QUEUE", 1)[0]
+    pa = prompts.planner_messages(cat, [], [], [], [], [], queue=["Queue A"])[-1]["content"]
+    pb = prompts.planner_messages(cat, [], [], [], [], [], queue=["Queue B"])[-1]["content"]
+    assert pa.split("CURRENT QUEUE", 1)[0] == pb.split("CURRENT QUEUE", 1)[0]
+    assert pa.index("Seed queries from the family") < pa.index("CURRENT QUEUE")
+
+
+def test_approved_rejection_keeps_verdict_context_and_does_not_boost_trust():
+    cat = make_category()
+    with session() as s:
+        s.add(Video(id="reject00001", title="Rejected", channel_id="UCbad", channel_name="Bad"))
+        s.add(Candidate(category_id=cat.id, video_id="reject00001", status="rejected", score=22,
+                        summary="A shallow prank", reasons=["staged"], red_flags=["cruel prank"], tags=["prank"]))
+        fb = Feedback(profile_id=cat.profile_id, video_id="reject00001", category_id=cat.id, rating=1,
+                      chips=["Approved rejection"], text="")
+        s.add(fb)
+        s.commit()
+        items, channels = learn._items(s, [fb])
+        assert channels == {"UCbad"}
+        assert items[0]["ai_score_when_picked"] == 22
+        assert items[0]["ai_reasons_when_picked"] == ["staged"]
+        assert items[0]["ai_red_flags_when_picked"] == ["cruel prank"]
+        learner_msgs = prompts.learn_messages(cat.name, [cat], [], items)
+        assert "Approved rejection" in learner_msgs[0]["content"]
+        assert "wants the" in learner_msgs[0]["content"]
+        assert "endorses the AI rejection" not in "\n".join(m["content"] for m in learner_msgs)
+        assert learn._adjust_trust(s, cat.profile_id, [fb]) == []
+
+
+def test_approval_correction_is_processed_and_lesson_reaches_future_judgments(monkeypatch):
+    cat = make_category()
+    w = make_worker()
+    with session() as s:
+        s.add(Video(id="advanced001", title="Advanced marble builds", channel_id="UCbuild"))
+        s.add(Candidate(category_id=cat.id, video_id="advanced001", status="accepted", score=45,
+                        summary="Too advanced", red_flags=["technical explanation"]))
+        fb = Feedback(profile_id=cat.profile_id, category_id=cat.id, video_id="advanced001", rating=1,
+                      chips=["Approved rejection"], text="Family added this despite the AI rejection: Too advanced")
+        s.add(fb)
+        s.commit()
+        fid = fb.id
+
+    def corrected_lesson(messages, **kw):
+        assert kw["schema_name"] == "lessons"
+        assert "Approved rejection" in messages[-1]["content"] and "Too advanced" in messages[-1]["content"]
+        return {"lessons": [{"text": "Welcome advanced marble builds with clear explanations",
+                             "category_id": cat.id, "channel_id": None, "replaces_lesson_id": None}]}
+
+    monkeypatch.setattr(w.rt.llm, "chat_json", corrected_lesson)
+    assert learn.process(w.rt) == 1
+    with session() as s:
+        assert s.get(Feedback, fid).processed
+        lessons = data.lessons_for(s, cat, "UCnew")
+        assert len(lessons) == 1 and lessons[0].category_id == cat.id
+        msgs = prompts.judge_messages(cat, Video(id="future00001", title="Another build"), lessons, None, 1000)
+        assert "Welcome advanced marble builds" in msgs[-1]["content"]
+        assert data.trust_for(s, cat.profile_id, "UCbuild") is None
+    assert learn.process(w.rt) == 0  # processed exactly once
+
+
+def test_serialized_llm_prompt_keeps_schema_prefix_before_variable_text_and_image(monkeypatch):
+    cat = make_category()
+    sent = []
+
+    def capture(cfg, body, abort=None):
+        sent.append(body["messages"])
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"ok":true}'}}]},
+                              request=httpx.Request("POST", "http://test"))
+
+    monkeypatch.setattr(llm, "_post", capture)
+    for suffix in ("A", "B"):
+        msgs = prompts.judge_messages(cat, Video(id=suffix * 11, title=f"Title {suffix}"), [], None, 1000)
+        llm.chat_json(msgs, json_schema=prompts.JUDGE_SCHEMA, images=[f"data:image/png;base64,{suffix}"])
+    assert sent[0][0] == sent[1][0]
+    assert sent[0][0]["role"] == "system" and "JSON schema" in sent[0][0]["content"]
+    assert sent[0][1]["content"][0]["type"] == "text"
+    assert sent[0][1]["content"][-1]["type"] == "image_url"
+    assert sent[0][1]["content"] != sent[1][1]["content"]
 
 
 def test_queue_context_reaches_judge_and_planner():

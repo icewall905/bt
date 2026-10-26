@@ -108,7 +108,7 @@ def judge_one(rt: Runtime, cand: Candidate) -> Optional[str]:
         min(JUDGE_COMMENTS_MAX, int(st["throttle"].get("max_comments") or 40)), queue, rejections)
     rt.state("judging", f"Judging: {v.title}", cat, video_id=v.id, title=v.title)
     rt.event("judge", f"🤔 Judging: {v.title}", "info", cat, video_id=v.id,
-             payload={"lessons": len(lessons), "trust": trust, "comments": len(v.comments or []),
+             payload={"candidate_id": cand.id, "lessons": len(lessons), "trust": trust, "comments": len(v.comments or []),
                       "transcript_chars": len(v.transcript or "")})
     images = None
     # Thumbnail comes from the i.ytimg.com CDN; still skip it while YouTube is in backoff or someone is watching.
@@ -144,7 +144,7 @@ def judge_one(rt: Runtime, cand: Candidate) -> Optional[str]:
         c.red_flags, c.tags, c.judged_at, c.error = verdict["red_flags"], verdict["tags"], now(), ""
         s.add(c)
         s.commit()
-    payload = {**verdict, "threshold": cat.threshold, "accepted": ok}
+    payload = {**verdict, "threshold": cat.threshold, "accepted": ok, "candidate_id": cand.id}
     if ok:
         rt.event("accept", f"✅ Accepted ({verdict['score']}): {v.title} — {verdict['summary']}"[:600], "success",
                  cat, video_id=v.id, payload=payload)

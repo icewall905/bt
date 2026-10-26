@@ -8,7 +8,7 @@ from sqlmodel import select  # noqa: E402
 
 from bt.db import emit, session  # noqa: E402
 from bt.main import app  # noqa: E402
-from bt.models import Candidate, Category, Video, WatchHistory, now  # noqa: E402
+from bt.models import AgentEvent, Candidate, Category, Feedback, Video, WatchHistory, now  # noqa: E402
 from bt.agent import data  # noqa: E402
 
 
@@ -145,6 +145,62 @@ def test_feedback_dislike_rejects_candidate():
     # candidate detail exposes the family reason to the drawer
     d = c.get(f"/api/agent/candidates/{cand.id}").json()
     assert d["status"] == "rejected" and any("Family:" in f for f in d["red_flags"])
+
+
+def test_add_anyway_uses_intended_profile_and_records_correction_once(monkeypatch):
+    c = client()
+    owner = c.post("/api/profiles", json={"name": "Verdict owner"}).json()
+    h = {"X-Profile-Id": str(owner["id"])}
+    cat = c.post("/api/categories", json={"name": "Advanced builds"}, headers=h).json()
+    with session() as s:
+        s.add(Video(id="override001", title="An ambitious build", channel_id="UCoverride"))
+        cand = Candidate(category_id=cat["id"], video_id="override001", status="rejected", dismissed=True,
+                         score=0, summary="Too complicated", reasons=["Advanced techniques"],
+                         red_flags=["Too technical"], error="old error", judged_at=now())
+        s.add(cand)
+        s.add(WatchHistory(profile_id=owner["id"], video_id="override001", finished=True, position_s=500))
+        s.commit()
+        cand_id = cand.id
+    # No metadata calls are needed to restore a stored verdict, even if not fetched.
+    from bt import ytdl
+    monkeypatch.setattr(ytdl, "video_info", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("network")))
+    detail = c.get(f"/api/agent/candidates/{cand_id}").json()
+    assert detail["profile_id"] == owner["id"] and detail["category_name"] == "Advanced builds"
+    assert c.post(f"/api/candidates/{cand_id}/accept").status_code == 404
+    result = c.post(f"/api/candidates/{cand_id}/accept", headers=h)
+    assert result.status_code == 200 and result.json()["learn_from_override"]
+    assert c.post(f"/api/candidates/{cand_id}/accept", headers=h).json()["learn_from_override"] is False
+    with session() as s:
+        candidate = s.get(Candidate, cand_id)
+        assert candidate.status == "accepted" and not candidate.dismissed and not candidate.error
+        assert candidate.score == 0 and candidate.red_flags == ["Too technical"]
+        fbs = s.exec(select(Feedback).where(Feedback.video_id == "override001")).all()
+        assert len(fbs) == 1
+        fb = fbs[0]
+        assert fb.profile_id == owner["id"] and fb.category_id == cat["id"] and not fb.processed
+        assert fb.rating == 1 and fb.chips == ["Approved rejection"]
+        assert "Too complicated" in fb.text and "Too technical" in fb.text and "Advanced techniques" in fb.text
+        evs = s.exec(select(AgentEvent).where(AgentEvent.video_id == "override001")).all()
+        assert len(evs) == 1 and evs[0].payload["candidate_id"] == cand_id
+    feed = c.get(f"/api/feed/category/{cat['id']}", headers=h).json()
+    assert [x["video"]["id"] for x in feed] == ["override001"]
+
+
+def test_add_anyway_pending_and_deleted_category_do_not_learn():
+    c = client()
+    cat = c.post("/api/categories", json={"name": "Pending override"}).json()
+    with session() as s:
+        s.add(Video(id="pending0001", title="Waiting for a verdict"))
+        candidate = Candidate(category_id=cat["id"], video_id="pending0001", status="enriched")
+        s.add(candidate)
+        s.commit()
+        cand_id = candidate.id
+    result = c.post(f"/api/candidates/{cand_id}/accept")
+    assert result.status_code == 200 and result.json()["learn_from_override"] is False
+    with session() as s:
+        assert s.exec(select(Feedback).where(Feedback.video_id == "pending0001")).all() == []
+    c.delete(f"/api/categories/{cat['id']}")
+    assert c.post(f"/api/candidates/{cand_id}/accept").status_code == 404
 
 
 def test_stats_page():

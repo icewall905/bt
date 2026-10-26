@@ -62,7 +62,7 @@ How to judge:
   "song", or "documentary"), then useful specific subtopics. Do not use generic tags such as "fun",
   "educational", "kids", or "video"; never put a generic tag before the subject.
 - reasons: 2-4 short concrete reasons.
-Output ONLY the JSON object."""
+The video thumbnail is attached if available. Output ONLY the JSON object."""
 
 
 def _clip(text: str, n: int) -> str:
@@ -142,7 +142,6 @@ def judge_messages(cat, video, lessons: list, trust: Optional[float], transcript
         "TRANSCRIPT\n" + (_clip(video.transcript, transcript_chars) or "(no transcript available — rely on "
                                                                         "description, comments and thumbnail)"),
         "TOP COMMENTS\n" + ("\n".join(comments) or "(no comments available)"),
-        "The video thumbnail is attached if available. Return the JSON verdict now.",
     ])
     return [{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": user}]
 
@@ -182,11 +181,14 @@ Output ONLY the JSON object."""
 
 def planner_messages(cat, lessons: list, accepted: list[str], rejected: list[str], disliked: list[str],
                      tried: list[str], queue: Optional[list[str]] = None) -> list[dict]:
-    parts = [category_block(cat), lessons_block(lessons), queue_block(queue or [])]
+    # Keep stable category/seeds/lessons context ahead of changing queue/history.
+    parts = [category_block(cat)]
     if cat.seed_queries:
         parts.append("Seed queries from the family: " + "; ".join(cat.seed_queries))
     if cat.seed_channels:
         parts.append("Seed channels from the family: " + ", ".join(cat.seed_channels))
+    parts.append(lessons_block(lessons))
+    parts.append(queue_block(queue or []))
     if accepted:
         parts.append("Recently ACCEPTED (good examples):\n" + "\n".join(f"- {t}" for t in accepted))
     if rejected:
@@ -196,7 +198,6 @@ def planner_messages(cat, lessons: list, accepted: list[str], rejected: list[str
         parts.append("The family DISLIKED:\n" + "\n".join(f"- {t}" for t in disliked))
     if tried:
         parts.append("Queries already tried (do not repeat): " + "; ".join(tried))
-    parts.append("Return the JSON plan now.")
     return [{"role": "system", "content": PLANNER_SYSTEM}, {"role": "user", "content": "\n\n".join(parts)}]
 
 
@@ -233,6 +234,13 @@ guide future video picking (the judge reads them and must obey them).
   clear explanation over pure spectacle". Generalise from the specific video to the underlying preference.
 - Only create a lesson when the feedback reveals a real preference. Plain likes with no comment usually need
   no lesson (return an empty list is fine). Dislikes with a reason almost always deserve one.
+- A rating of 1 with the exact chip "Approved rejection" is a deliberate correction: the family wants the
+  AI-rejected video added anyway, so that rejection was too strict or mismatched their taste. Treat it as
+  disagreement with the rejection, never as an ordinary like. Use the supplied original AI score, summary,
+  reasons and red_flags to identify the narrow preference supported by the evidence. Do not invent a reason,
+  waive a safety concern, or turn one correction into a broad rule.
+- Keep correction lessons scoped to the feedback item's category unless the evidence clearly applies everywhere;
+  do not infer a channel-wide or profile-wide preference merely because the rejected video came from that channel.
 - Merge, don't duplicate: if an existing lesson already covers it, either skip it or rewrite that lesson
   (set replaces_lesson_id to its id and give the improved text).
 - category_id: the category the lesson applies to, or null if it applies to all of this person's categories.
@@ -246,5 +254,5 @@ def learn_messages(profile_name: str, categories: list, lessons: list, items: li
                          for le in lessons) or "(none)"
     fb = json.dumps(items, ensure_ascii=False, indent=1, default=str)
     user = (f"PROFILE: {profile_name}\n\nCATEGORIES:\n{cats}\n\nEXISTING LESSONS:\n{existing}\n\n"
-            f"NEW FEEDBACK (rating: -1 dislike, 0 note, 1 like, 2 love):\n{fb}\n\nReturn the JSON now.")
+            f"NEW FEEDBACK (rating: -1 dislike, 0 note, 1 like, 2 love):\n{fb}")
     return [{"role": "system", "content": LEARN_SYSTEM}, {"role": "user", "content": user}]

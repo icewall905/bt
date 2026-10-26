@@ -76,7 +76,7 @@ function detailOf(body: unknown, fallback: string): string {
 export async function request<T>(path: string, opts: ReqOpts = {}): Promise<T> {
 	const headers: Record<string, string> = { Accept: 'application/json', ...(opts.headers ?? {}) };
 	const pid = currentProfileId();
-	if (pid) headers['X-Profile-Id'] = pid;
+	if (pid && !headers['X-Profile-Id']) headers['X-Profile-Id'] = pid;
 	let body: BodyInit | undefined = opts.raw;
 	if (opts.body !== undefined) {
 		headers['Content-Type'] = 'application/json';
@@ -146,9 +146,11 @@ export const api = {
 
 	// feeds
 	home: (perRow = 20) => get<HomeRow[]>(`/feed/home${q({ per_row: perRow })}`),
-	categoryFeed: (id: number, status: 'accepted' | 'pending' | 'rejected' | 'all' = 'accepted', o: { offset?: number; limit?: number; include_watched?: boolean; after?: string } = {}) =>
-		get<Candidate[]>(`/feed/category/${id}${q({ status, ...o })}`),
+	categoryFeed: (id: number, status: 'accepted' | 'pending' | 'rejected' | 'all' = 'accepted', o: { offset?: number; limit?: number; include_watched?: boolean; after?: string } = {}, profileId?: number | null) =>
+		get<Candidate[]>(`/feed/category/${id}${q({ status, ...o })}`, profileId ? { headers: { 'X-Profile-Id': String(profileId) } } : undefined),
 	dismissCandidate: (id: number) => post<{ ok: boolean }>(`/candidates/${id}/dismiss`),
+	acceptCandidate: (id: number, profileId: number) => post<{ ok: boolean; category_id: number; learn_from_override: boolean }>(
+		`/candidates/${id}/accept`, {}, { headers: { 'X-Profile-Id': String(profileId) } }),
 	addCandidate: (video_id: string, category_id: number) => post<{ ok: boolean }>('/candidates', { video_id, category_id }),
 
 	// channels

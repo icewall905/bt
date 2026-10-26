@@ -13,7 +13,7 @@ from sqlmodel import Session, col, select
 
 from ..db import (get_agent_control, get_agent_state, get_kv, get_session, get_settings, session, update_agent_control,
                   yt_request_counts)
-from ..models import AgentEvent, Candidate, Category, now
+from ..models import AgentEvent, Candidate, Category, Profile, now
 from .core import profile_id
 
 router = APIRouter()
@@ -145,6 +145,11 @@ def candidate_detail(cand_id: int, s: Session = Depends(get_session)):
         return {"detail": "not found"}
     v = s.get(Video, c.video_id)
     out = candidate_out(c, v)
+    category = s.get(Category, c.category_id)
+    profile = s.get(Profile, category.profile_id) if category else None
+    out.update(profile_id=category.profile_id if category else None,
+               category_name=category.name if category else None,
+               profile_name=profile.name if profile else None)
     if v:
         out["transcript_excerpt"] = (v.transcript or "")[:1500]
         out["comments"] = (v.comments or [])[:10]

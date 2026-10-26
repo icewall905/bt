@@ -12,6 +12,7 @@ from .runtime import Interrupt, Runtime
 
 BATCH = 8
 TRUST_DELTA = {2: 0.2, 1: 0.2, -1: -0.3}
+APPROVED_REJECTION = "Approved rejection"
 
 
 def _norm(t: str) -> str:
@@ -39,6 +40,9 @@ def _items(s, fbs: list[Feedback]) -> tuple[list[dict], set[str]]:
             "video_title": v.title if v else f.video_id,
             "channel": f"{v.channel_name} (id {v.channel_id})" if v and v.channel_id else None,
             "ai_summary_when_picked": cand.summary if cand else None,
+            "ai_score_when_picked": cand.score if cand else None,
+            "ai_reasons_when_picked": cand.reasons if cand else None,
+            "ai_red_flags_when_picked": cand.red_flags if cand else None,
             "ai_tags": cand.tags if cand else None,
             "description_excerpt": (v.description or "")[:300] if v else None,
         })
@@ -48,6 +52,9 @@ def _items(s, fbs: list[Feedback]) -> tuple[list[dict], set[str]]:
 def _adjust_trust(s, profile_id: int, fbs: list[Feedback]) -> list[dict]:
     changes = []
     for f in fbs:
+        # This rating is a correction to the AI's rejection, not approval of the channel.
+        if f.rating == 1 and APPROVED_REJECTION in (f.chips or []):
+            continue
         delta = TRUST_DELTA.get(f.rating)
         v = s.get(Video, f.video_id)
         if not delta or not v or not v.channel_id:

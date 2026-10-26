@@ -102,6 +102,9 @@ export interface Candidate {
 }
 
 export interface CandidateDetail extends Candidate {
+	profile_id?: number | null;
+	category_name?: string | null;
+	profile_name?: string | null;
 	transcript_excerpt?: string;
 	comments?: { author: string; text: string; likes: number }[];
 	events?: AgentEvent[];

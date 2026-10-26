@@ -12,6 +12,7 @@
 
 	let data = $state<CandidateDetail | null>(null);
 	let failed = $state(false);
+	let accepting = $state(false);
 	const close = () => (dialogs.candidate = null);
 
 	async function load(id: number) {
@@ -36,10 +37,21 @@
 	const STATUS: Record<string, string> = { found: 'Found, waiting for details', enriched: 'Read, waiting for a verdict', accepted: 'Picked', rejected: 'Rejected', error: 'Failed' };
 
 	async function accept() {
-		if (!data) return;
-		await api.addCandidate(data.video.id, data.category_id);
-		toast.success('Added to the category');
-		close();
+		if (!data || accepting) return;
+		if (!data.profile_id) {
+			toast.error('The original category no longer exists.');
+			return;
+		}
+		accepting = true;
+		try {
+			const result = await api.acceptCandidate(data.id, data.profile_id);
+			toast.success(result.learn_from_override ? 'Added. The AI will learn from your approval.' : 'Added to the category');
+			close();
+		} catch {
+			// The API client shows the error; keep the verdict open for retry.
+		} finally {
+			accepting = false;
+		}
 	}
 	async function dismiss() {
 		if (!data) return;
@@ -66,7 +78,7 @@
 	}
 </script>
 
-<Modal size="drawer" title={v?.title ?? 'Candidate'} subtitle={cat ? `${cat.emoji} ${cat.name}` : undefined} onClose={close}>
+<Modal size="drawer" title={v?.title ?? 'Candidate'} subtitle={data?.category_name ? `${data.profile_name ?? ''} · ${data.category_name}` : cat ? `${cat.emoji} ${cat.name}` : undefined} onClose={close}>
 	{#if failed}
 		<p class="muted">This candidate could not be loaded. It may have been removed.</p>
 	{:else if !data}
@@ -133,7 +145,7 @@
 			{#if data.status === 'accepted'}
 				<button class="btn" use:focusable={{ onSelect: dismiss }}>Remove from category</button>
 			{:else}
-				<button class="btn" use:focusable={{ onSelect: accept }}>Add anyway</button>
+				<button class="btn" disabled={accepting} use:focusable={{ onSelect: accept }}>{accepting ? 'Adding…' : 'Add anyway'}</button>
 			{/if}
 			<button class="btn" title="Tell the AI what to pick instead" use:focusable={{ onSelect: openFeedback }}>💬 Feedback</button>
 		{/if}

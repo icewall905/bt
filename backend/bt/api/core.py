@@ -1,4 +1,5 @@
 """Profiles, categories, feeds, channels, feedback, lessons, history, settings."""
+import json
 import re
 from datetime import timedelta
 from typing import Optional
@@ -6,11 +7,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlmodel import Session, col, delete, func, select
+from sqlalchemy import update
 
 from ..config import COOKIES_PATH, DEFAULT_SETTINGS
 from ..db import emit, get_session, get_settings, save_setting, yt_request_counts
 from ..playlist import order_playlist
-from ..models import (Candidate, Category, Channel, Download, Feedback, Lesson, Profile, ProfileChannel, Video,
+from ..models import (AgentEvent, Candidate, Category, Channel, Download, Feedback, Lesson, Profile, ProfileChannel, Video,
                       WatchHistory, YtRequest, now)
 
 router = APIRouter()
@@ -299,6 +301,40 @@ def dismiss_candidate(cand_id: int, pid: int = Depends(profile_id), s: Session =
     s.add(c)
     s.commit()
     return {"ok": True}
+
+
+@router.post("/candidates/{cand_id}/accept")
+def accept_candidate(cand_id: int, pid: int = Depends(profile_id), s: Session = Depends(get_session)):
+    """Approve the stored candidate in its intended category, without fetching YouTube."""
+    c = s.get(Candidate, cand_id) or _404()
+    cat = _own_category(s, pid, c.category_id)
+    v = s.get(Video, c.video_id) or _404()
+    rejected = c.status == "rejected"
+    snapshot = json.dumps({"score": c.score, "summary": c.summary,
+                           "reasons": c.reasons, "red_flags": c.red_flags}, ensure_ascii=False)
+    # The conditional update also makes duplicate clicks/retries idempotent.
+    changed = s.execute(update(Candidate).where(
+        Candidate.id == cand_id,
+        (Candidate.status != "accepted") | (Candidate.dismissed == True),  # noqa: E712
+    ).values(status="accepted", dismissed=False, error="").execution_options(synchronize_session=False)).rowcount
+    if not changed:
+        return {"ok": True, "category_id": cat.id, "learn_from_override": False}
+    if rejected:
+        s.add(Feedback(profile_id=pid, category_id=cat.id, video_id=c.video_id, rating=1,
+                       chips=["Approved rejection"],
+                       text="The family chose Add anyway: approve this video for this category despite the AI rejection. "
+                            "Original AI verdict: " + snapshot))
+    history = s.exec(select(WatchHistory).where(WatchHistory.profile_id == pid,
+                                               WatchHistory.video_id == c.video_id)).first()
+    if history and history.finished:
+        history.finished, history.position_s = False, 0
+        history.updated_at = now()
+        s.add(history)
+    s.add(AgentEvent(kind="accept", level="success", profile_id=pid, category_id=cat.id, video_id=c.video_id,
+                     message=f"✅ You added: {v.title} — {cat.name}",
+                     payload={"candidate_id": c.id, "by": "family", "overrode_rejection": rejected}))
+    s.commit()
+    return {"ok": True, "category_id": cat.id, "learn_from_override": rejected}
 
 
 class CandidateIn(BaseModel):
