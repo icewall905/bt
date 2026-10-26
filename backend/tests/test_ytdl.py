@@ -78,6 +78,20 @@ def test_pinned_proxy_url_unresolvable_host_unchanged():
     assert ytdl.pinned_proxy_url(url) == url
 
 
+def test_pinned_proxy_url_keeps_credentials(monkeypatch):
+    import socket as sockmod
+
+    def fake_getaddrinfo(host, port, family=0):
+        return [(sockmod.AF_INET, sockmod.SOCK_STREAM, 6, "", ("109.201.152.161", port or 1080))]
+
+    monkeypatch.setattr(ytdl, "_socks_probe", lambda ip, p: True)
+    monkeypatch.setattr(sockmod, "getaddrinfo", fake_getaddrinfo)
+    ytdl._pin_cache.clear()
+    assert ytdl.pinned_proxy_url("socks5://u%40x:p%40y@proxy.example.com:1080") \
+        == "socks5://u%40x:p%40y@109.201.152.161:1080"
+    ytdl._pin_cache.clear()
+
+
 JSON3 = json.dumps({"events": [
     {"tStartMs": 0, "dDurationMs": 1000},  # window event without segs
     {"tStartMs": 100, "dDurationMs": 2000, "segs": [{"utf8": "hello "}, {"utf8": "world"}]},

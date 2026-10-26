@@ -125,7 +125,8 @@ def pinned_proxy_url(url: str) -> str:
     out = url
     for ip in ips[:12]:
         if _socks_probe(ip, p):
-            out = up.urlunparse(p._replace(netloc=f"{ip}:{p.port or 1080}"))
+            creds = f"{p.netloc.rsplit('@', 1)[0]}@" if "@" in p.netloc else ""
+            out = up.urlunparse(p._replace(netloc=f"{creds}{ip}:{p.port or 1080}"))
             break
     with _pin_lock:
         _pin_cache[url] = (time.time() + _PIN_TTL_S, out)
