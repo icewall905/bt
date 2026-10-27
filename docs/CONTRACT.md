@@ -40,7 +40,9 @@ Deploy: `root@10.0.10.73:/root/compose/bt`, port **6645**, public URL `https://b
   preview: the local copy when saved offline, otherwise DASH at ≤540p through the same proxy as the
   player (progressive muxed streams no longer exist on YouTube, so `/api/video/{id}/fallback` is not
   usable for previews). One preview at a time; sweeps under 350 ms start nothing; teardown on leave
-  aborts the stream. Shared by `use:preview` (`$lib/preview.ts`); touch-only devices are skipped.
+  aborts the stream. The action survives feed refreshes under a parked pointer (agent 'accept' events
+  reload home/category rows constantly) and re-arms re-created cards. Shared by `use:preview`
+  (`$lib/preview.ts`); touch-only devices are skipped.
 - **Statistics page** (`/stats`, top-bar tab "Stats"): `GET /api/stats/page?days=N` (N ≤ 120, default 30) returns
   `overview` (videos known, candidate pipeline counts incl. `waiting_judge`/`in_queue`/`rejected_ai` vs
   `rejected_family`/`dismissed`, downloads by status + storage, feedback by rating, lessons, watched totals + seconds,
