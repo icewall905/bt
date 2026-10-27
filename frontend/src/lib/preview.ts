@@ -11,6 +11,24 @@ const DELAY_MS = 350; // quick sweep-overs must not start fetches
 const FADE_MS = 160;
 const PREVIEW_HEIGHT = 540; // preview bits are not bits to treasure; the player offers full quality
 
+// Feed reshuffles can replace a card component while the pointer sits parked on it; a fresh
+// action would never see a pointerenter again. Track the pointer once and let (re)created
+// actions arm themselves when the pointer is already inside their trigger element.
+let px = -1;
+let py = -1;
+let pointerTracked = false;
+function trackPointer() {
+	if (pointerTracked || typeof document === 'undefined') return;
+	pointerTracked = true;
+	document.addEventListener('pointermove', (e) => { px = e.clientX; py = e.clientY; }, { passive: true, capture: true });
+}
+
+function pointerOver(el: HTMLElement | null): boolean {
+	if (!el || !el.isConnected || px < 0 || py < 0) return false;
+	const r = el.getBoundingClientRect();
+	return px >= r.left && px <= r.right && py >= r.top && py <= r.bottom;
+}
+
 export interface PreviewOpts {
 	id: string;
 	/** saved offline: play the local mp4 instead of streaming DASH */
@@ -111,6 +129,7 @@ async function start(host: HTMLElement, opts: PreviewOpts) {
 }
 
 export function preview(node: HTMLElement, opts: PreviewOpts) {
+	trackPointer();
 	let cfg = opts;
 	let listen: HTMLElement | null = null;
 	let timer: number | undefined;
@@ -147,13 +166,23 @@ export function preview(node: HTMLElement, opts: PreviewOpts) {
 	}
 
 	rewire();
+	if (pointerOver(cfg.listenOn ?? node)) enter(); // pointer parked here already (e.g. after a feed reshuffle)
 	return {
 		update(p: PreviewOpts) {
+			// Feed/row refreshes rebuild card props with the SAME video under the pointer all the time
+			// (agent 'accept' events trigger home/category reloads). Only a real target change may
+			// interrupt a running preview, otherwise hover previews tear down mid-motion forever.
+			const same = p.id === cfg.id && !!p.offline === !!cfg.offline;
 			const wasArmed = timer !== undefined || current !== null;
-			leave();
 			cfg = p;
 			rewire();
-			if (wasArmed) enter(); // the pointer may already be on the element (row data changed under it)
+			if (same) {
+				// nothing runs and nothing is armed, but the pointer is sitting on us: re-arm
+				if (!wasArmed && pointerOver(cfg.listenOn ?? node)) enter();
+				return;
+			}
+			leave();
+			if (wasArmed || pointerOver(cfg.listenOn ?? node)) enter();
 		},
 		destroy() {
 			leave();
