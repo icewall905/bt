@@ -8,6 +8,7 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { focusable } from '$lib/nav';
 	import { clockTime, fmtBytes, fmtCountdown, timeAgo } from '$lib/util';
+	import { preview } from '$lib/preview';
 	import type { AgentEvent, AgentQueue } from '$lib/types';
 	import AgentGlyph from '$lib/components/AgentGlyph.svelte';
 
@@ -129,7 +130,7 @@
 		</div>
 		{#if agent.state.video_id}
 			<div class="now">
-				<img src={api.thumb(String(agent.state.video_id))} alt="" />
+				<div class="pvw"><img src={api.thumb(String(agent.state.video_id))} alt="" /></div>
 				<span class="small">{(agent.state.title as string) ?? ''}</span>
 			</div>
 		{/if}
@@ -164,7 +165,7 @@
 			</div>
 			{#if dl.state === 'downloading' || dl.state === 'transcoding'}
 				<div class="dlnow">
-					{#if dl.video_id}<img src={api.thumb(dl.video_id, 'mq')} alt="" />{/if}
+					{#if dl.video_id}<div class="pvw"><img src={api.thumb(dl.video_id, 'mq')} alt="" /></div>{/if}
 					<div class="grow">
 						<span class="small">{dl.title || dl.video_id}</span>
 						<div class="mbar"><span style:width="{(dl.progress ?? 0) * 100}%"></span></div>
@@ -228,7 +229,7 @@
 								<span class="t">{clockTime(e.ts)}</span>
 								<span class="i">{KIND_ICON[e.kind] ?? '•'}</span>
 								<span class="m">{e.message.replace(/^\p{Extended_Pictographic}️?\s*/u, '')}</span>
-								<img src={api.thumb(e.video_id, 'mq')} alt="" loading="lazy" />
+								<span class="pvw"><img src={api.thumb(e.video_id, 'mq')} alt="" loading="lazy" /></span>
 							</button>
 						{:else}
 							<div class="evb static">
@@ -357,6 +358,21 @@
 		display: grid;
 		gap: 0.5rem;
 		position: relative;
+	}
+	.now .pvw,
+	.dlnow .pvw,
+	.evb .pvw {
+		position: relative;
+		display: block;
+		flex: none;
+		overflow: hidden;
+		border-radius: var(--r-md);
+	}
+	.dlnow .pvw {
+		border-radius: 0.4rem;
+	}
+	.evb .pvw {
+		border-radius: 0.35rem;
 	}
 	.now img {
 		width: 100%;

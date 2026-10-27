@@ -2,6 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import { focusable, type NavKey } from '$lib/nav';
 	import { api } from '$lib/api';
+	import { preview } from '$lib/preview';
 	import { fmtDuration, fmtCount, timeAgo } from '$lib/util';
 	import { warmVideo } from '$lib/prefetch';
 	import type { Video } from '$lib/types';
@@ -27,6 +28,8 @@
 	const link = $derived(href ?? `/watch/${v.id}`);
 	let broken = $state(false);
 	let actionsEl = $state<HTMLDivElement | null>(null);
+	let hitEl = $state<HTMLElement | null>(null);
+	let thumbEl = $state<HTMLElement | null>(null);
 
 	/** The action buttons sit inside the stretched link's rect, so the engine's spatial move
 	 *  cannot reach them; Down from the card dives into the strip explicitly. */
@@ -44,15 +47,18 @@
 </script>
 
 <div class="card {size}" style:--cat={color ?? 'var(--ai)'}>
-	<!-- Stretched link: the whole card is one click target; hover/focus effects key off it. -->
+	<!-- Stretched link: the whole card is one click target; hover/focus effects key off it.
+	     Hovering also arms the silent mouse-over preview (does not start on keyboard focus). -->
 	<a
 		class="hit"
+		bind:this={hitEl}
 		href={link}
 		aria-label={v.title ?? v.id}
 		onpointerenter={() => warmVideo(v.id, { offline: !!v.offline })}
+		use:preview={{ id: v.id, offline: !!v.offline, listenOn: hitEl, host: thumbEl }}
 		use:focusable={{ group, id: id ?? `v-${group ?? ''}-${v.id}`, autofocus, onKey: dive, onFocus: () => warmVideo(v.id, { offline: !!v.offline }), onSelect: onSelect ? (e) => (e?.preventDefault(), onSelect()) : undefined }}
 	></a>
-	<div class="thumb">
+	<div class="thumb" bind:this={thumbEl}>
 		{#if !broken}
 			<img src={api.thumb(v.id)} alt="" loading="lazy" decoding="async" onerror={() => (broken = true)} />
 		{:else}

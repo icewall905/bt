@@ -6,6 +6,7 @@
 	import { dialogs } from '$lib/stores/dialogs.svelte';
 	import { session } from '$lib/stores/session.svelte';
 	import { fmtBytes, fmtDuration } from '$lib/util';
+	import { preview } from '$lib/preview';
 	import type { StatsExploreData, StatsExploreFilter, StatsExploreItem } from '$lib/types';
 	import Modal from './Modal.svelte';
 
@@ -43,7 +44,7 @@
 			<ul class="results">
 				{#each data.items as item (item.key)}
 					<li class="result">
-						{#if item.video_id}<img src={api.thumb(item.video_id, 'mq')} alt="" loading="lazy" />{/if}
+						{#if item.video_id}<span class="pvw" use:preview={{ id: item.video_id, offline: !!item.offline }}><img src={api.thumb(item.video_id, 'mq')} alt="" loading="lazy" /></span>{/if}
 						<div class="info">
 							<strong>{item.title}</strong>
 							<div class="small muted meta">
@@ -84,6 +85,7 @@
 <style>
 	.results { display: grid; gap: 0.65rem; list-style: none; padding: 0; margin: 0; }
 	.result { display: flex; align-items: center; gap: 1rem; padding: 0.9rem; border: 1px solid var(--line); border-radius: var(--r-md); background: rgba(255,255,255,0.035); }
+	.pvw { position: relative; display: block; flex: none; overflow: hidden; border-radius: 0.5rem; }
 	.result img { width: 7rem; aspect-ratio: 16/9; object-fit: cover; border-radius: 0.5rem; flex: none; }
 	.info { min-width: 0; flex: 1; display: grid; gap: 0.35rem; overflow-wrap: anywhere; }
 	.meta { display: flex; flex-wrap: wrap; gap: 0.25rem 0.8rem; }

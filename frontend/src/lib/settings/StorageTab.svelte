@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
+	import { preview } from '$lib/preview';
 	import { agent } from '$lib/stores/agent.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { focusable } from '$lib/nav';
@@ -162,7 +163,7 @@
 		<div class="list">
 			{#each items as i (i.video_id)}
 				<div class="item {i.status}">
-					<img src={api.thumb(i.video_id, 'mq')} alt="" loading="lazy" />
+					<span class="pvw" use:preview={{ id: i.video_id, offline: i.status === 'done' }}><img src={api.thumb(i.video_id, 'mq')} alt="" loading="lazy" /></span>
 					<div class="info">
 						<strong class="t">{titleOf(i)}</strong>
 						<span class="small muted">
@@ -253,6 +254,13 @@
 		object-fit: cover;
 		border-radius: 0.45rem;
 		flex: none;
+	}
+	.pvw {
+		position: relative;
+		display: block;
+		flex: none;
+		overflow: hidden;
+		border-radius: 0.45rem;
 	}
 	.info {
 		flex: 1;

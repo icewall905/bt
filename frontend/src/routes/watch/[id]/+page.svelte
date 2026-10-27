@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api';
 	import { session } from '$lib/stores/session.svelte';
+	import { preview } from '$lib/preview';
 	import { dialogs } from '$lib/stores/dialogs.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { focusable, navScope, nav, scrollByKeys, type NavKey } from '$lib/nav';
@@ -880,7 +881,7 @@
 						{#each upNext.slice(0, 4) as n, i (n.id)}
 							{@const nv = isVideo(n.video) ? n.video : null}
 							<a class="next" href="/watch/{n.video.id}?c={catId ?? ''}" data-sveltekit-replacestate use:focusable={{ group: 'e-next', autofocus: i === 0 && countdown != null }}>
-								<div class="nthumb">
+								<div class="nthumb" use:preview={{ id: n.video.id, offline: !!nv?.offline }}>
 									<img src={api.thumb(n.video.id)} alt="" />
 									{#if i === 0 && countdown != null}
 										<div class="cd"><span>{countdown}</span></div>

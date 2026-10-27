@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api';
+	import { preview } from '$lib/preview';
 	import { dialogs } from '$lib/stores/dialogs.svelte';
 	import { session } from '$lib/stores/session.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -93,7 +94,7 @@
 		<div class="skeleton" style="height:6rem;margin-top:1rem"></div>
 	{:else}
 		<div class="stack">
-			<div class="thumb">
+			<div class="thumb" use:preview={{ id: data.video.id, offline: !!v?.offline }}>
 				<img src={api.thumb(data.video.id)} alt="" />
 				{#if data.score != null}<span class="big-score" class:low={data.status === 'rejected'}>{data.score}</span>{/if}
 			</div>

@@ -8,6 +8,7 @@
 	import { fmtDuration, isVideo } from '$lib/util';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { warmVideo } from '$lib/prefetch';
+	import { preview } from '$lib/preview';
 	import type { HomeRow, Video } from '$lib/types';
 	import Row from '$lib/components/Row.svelte';
 	import VideoCard from '$lib/components/VideoCard.svelte';
@@ -17,6 +18,8 @@
 
 	let rows = $state<HomeRow[] | null>(null);
 	let failed = $state(false);
+	let heroEl = $state<HTMLElement | null>(null);
+	let backdropEl = $state<HTMLElement | null>(null);
 
 	async function load() {
 		try {
@@ -137,8 +140,8 @@
 {:else}
 	{#if hero}
 		{@const cat = session.categoryById(hero.row.category_id)}
-		<section class="hero" style:--cat={hero.row.color ?? 'var(--ai)'}>
-			<div class="backdrop" aria-hidden="true">
+		<section class="hero" style:--cat={hero.row.color ?? 'var(--ai)'} bind:this={heroEl}>
+			<div class="backdrop" aria-hidden="true" bind:this={backdropEl} use:preview={{ id: hero.video.id, listenOn: heroEl, host: backdropEl }}>
 				<img src={api.thumb(hero.video.id, 'maxres')} alt="" onerror={(e) => ((e.currentTarget as HTMLImageElement).src = api.thumb(hero.video.id, 'hq'))} />
 			</div>
 			<div class="hero-body">
@@ -302,6 +305,18 @@
 		-webkit-mask-composite: source-in;
 		opacity: 0.75;
 		animation: drift 30s ease-in-out infinite alternate;
+	}
+	/* the hover preview keeps the same masked, dimmed backdrop look as the still */
+	.backdrop :global(.bt-hover-pv) {
+		mask-image: linear-gradient(90deg, transparent 0%, #000 45%), linear-gradient(0deg, transparent 0%, #000 40%);
+		mask-composite: intersect;
+		-webkit-mask-composite: source-in;
+	}
+	.backdrop :global(.bt-hover-pv.ready) {
+		opacity: 0.75;
+	}
+	.backdrop :global(.bt-hover-pv.bye) {
+		opacity: 0;
 	}
 	.backdrop::after {
 		content: '';

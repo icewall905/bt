@@ -8,6 +8,7 @@
 	import AgentGlyph from './AgentGlyph.svelte';
 	import ProgressRing from './ProgressRing.svelte';
 	import { fmtBytes } from '$lib/util';
+	import { preview } from '$lib/preview';
 
 	let open = $state(false);
 	const st = $derived(agent.effective);
@@ -59,7 +60,7 @@
 			{#if cat}<p class="small muted">Working on {cat.emoji} {cat.name}</p>{/if}
 			{#if agent.state.video_id}
 				<div class="vid">
-					<img src={api.thumb(String(agent.state.video_id), 'mq')} alt="" />
+					<span class="pvw" use:preview={{ id: agent.state.video_id }}><img src={api.thumb(String(agent.state.video_id), 'mq')} alt="" /></span>
 					<span class="small">{title || 'Current video'}</span>
 				</div>
 			{/if}
@@ -190,6 +191,13 @@
 		display: flex;
 		gap: 0.75rem;
 		align-items: center;
+	}
+	.vid .pvw {
+		position: relative;
+		display: block;
+		flex: none;
+		overflow: hidden;
+		border-radius: var(--r-sm);
 	}
 	.vid img {
 		width: 7rem;
