@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import sharp from 'sharp';
 
 // Hover previews keep playing across feed refreshes: agent 'accept' events reload the home rows
 // every few seconds in real use, and the preview under the pointer must survive them untouched.
@@ -39,7 +40,7 @@ with session() as s:
 test('hover preview survives home reloads while hovering the same card', async ({ page, request }) => {
 	page.on('console', (m) => { if (m.type() === 'error') console.log('BROWSER:', m.text().slice(0, 140)); });
 	await page.route('**/api/thumb/**', (r) =>
-		r.fulfill({ status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"></svg>' }));
+		r.fulfill({ status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#ff00ff"/></svg>' }));
 	await page.goto('/');
 	await page.evaluate(() => localStorage.setItem('bt.profile', '1'));
 	await page.goto('/');
@@ -52,6 +53,16 @@ test('hover preview survives home reloads while hovering the same card', async (
 			return await page.evaluate(() => (document.querySelector('video.bt-hover-pv') as HTMLVideoElement | null)?.currentTime ?? 0);
 		}, { timeout: 8000 })
 		.toBeGreaterThan(0.8); // actually playing
+	// Check rendered pixels: playback can advance while the still image covers it.
+	await expect.poll(async () => {
+		const image = await card.locator('.thumb').screenshot();
+		const { data, info } = await sharp(image).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+		let magenta = 0;
+		for (let i = 0; i < data.length; i += info.channels) {
+			if (data[i] > 245 && data[i + 1] < 10 && data[i + 2] > 245) magenta++;
+		}
+		return magenta / (info.width * info.height);
+	}, { timeout: 8000 }).toBeLessThan(0.5);
 	const before = await page.evaluate(() => {
 		const v = document.querySelector('video.bt-hover-pv') as HTMLVideoElement;
 		return { t: v.currentTime, src: v.src };

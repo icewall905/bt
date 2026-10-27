@@ -53,6 +53,7 @@ function injectCss() {
 }
 
 interface Run {
+	owner: symbol;
 	el: HTMLVideoElement;
 	player?: { destroy: () => Promise<void> };
 }
@@ -64,11 +65,10 @@ function stop(only?: HTMLVideoElement) {
 	if (only && (!current || current.el !== only)) return;
 	const run = current;
 	current = null;
-	if (!run || !run.el.isConnected) return;
+	if (!run) return;
 	run.el.classList.remove('ready');
 	run.el.classList.add('bye'); // brief fade-out, then teardown so the stream is really aborted
 	window.setTimeout(() => {
-		if (!run.el.isConnected) return;
 		run.el.pause();
 		run.player?.destroy().catch(() => (run.player as { release?: () => void } | undefined)?.release?.());
 		run.el.removeAttribute('src');
@@ -77,7 +77,7 @@ function stop(only?: HTMLVideoElement) {
 	}, FADE_MS + 30);
 }
 
-async function start(host: HTMLElement, opts: PreviewOpts) {
+async function start(host: HTMLElement, opts: PreviewOpts, owner: symbol) {
 	if (!opts.id) return;
 	stop(); // at most one preview everywhere at a time
 	if (document.visibilityState !== 'visible') return;
@@ -90,10 +90,14 @@ async function start(host: HTMLElement, opts: PreviewOpts) {
 	el.autoplay = true;
 	el.playsInline = true;
 	el.setAttribute('aria-hidden', 'true');
-	const run: Run = { el };
+	const run: Run = { el, owner };
 	el.addEventListener('playing', () => el.classList.add('ready'), { once: true });
 	el.addEventListener('error', () => stop(el));
-	host.prepend(el); // under overlays (duration badge, score, summary) that already live in the thumb
+	// The image may form a stacking context (for example, a hover transform). Insert the
+	// video after it so the frame paints above the still, but before badges and summaries.
+	const still = Array.from(host.children).find((child) => child.tagName === 'IMG');
+	if (still) still.after(el);
+	else host.prepend(el);
 	current = run;
 
 	try {
@@ -130,6 +134,7 @@ async function start(host: HTMLElement, opts: PreviewOpts) {
 
 export function preview(node: HTMLElement, opts: PreviewOpts) {
 	trackPointer();
+	const owner = Symbol("preview action");
 	let cfg = opts;
 	let listen: HTMLElement | null = null;
 	let timer: number | undefined;
@@ -141,7 +146,7 @@ export function preview(node: HTMLElement, opts: PreviewOpts) {
 		timer = window.setTimeout(() => {
 			timer = undefined;
 			const host = cfg.host ?? node;
-			if (host && host.isConnected) void start(host, cfg);
+			if (host && host.isConnected) void start(host, cfg, owner);
 		}, DELAY_MS);
 	}
 
@@ -150,7 +155,7 @@ export function preview(node: HTMLElement, opts: PreviewOpts) {
 			clearTimeout(timer);
 			timer = undefined;
 		}
-		if (current) stop();
+		if (current?.owner === owner) stop(current.el);
 	}
 
 	function rewire() {
@@ -173,7 +178,7 @@ export function preview(node: HTMLElement, opts: PreviewOpts) {
 			// (agent 'accept' events trigger home/category reloads). Only a real target change may
 			// interrupt a running preview, otherwise hover previews tear down mid-motion forever.
 			const same = p.id === cfg.id && !!p.offline === !!cfg.offline;
-			const wasArmed = timer !== undefined || current !== null;
+			const wasArmed = timer !== undefined || current?.owner === owner;
 			cfg = p;
 			rewire();
 			if (same) {
