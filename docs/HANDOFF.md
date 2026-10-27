@@ -3,6 +3,20 @@
 Read first: `docs/PLAN.md` (design), `docs/CONTRACT.md` (interfaces, ticket ownership, Ticket D spec), `README.md`, `frontend/README.md`.
 Workflow: `/home/hnyg/AGENTS.md` (implement → independent review → fix → re-review). Never add AI attribution trailers to commits.
 
+## 2026-10-27 updates
+- Storage has a persistent bulk GPU re-encoding queue (`ReencodeJob`). Saved copies stay playable; the
+  original is atomically replaced only by a smaller successful output. New downloads have the same size
+  safeguard. The HW Transcoding setting controls new downloads independently of bulk jobs.
+- `ReencodeResult` records exact sizes for completed encoding attempts; earlier encodes have no reliable
+  original size. Stats distinguishes the current library/queue from cumulative measured attempts.
+- Statistics now has paged drill-downs (`GET /api/stats/explore`) for overview, category, daily and encoding
+  totals, including verdicts, profile context and offline quality filters. Rows count category entries,
+  profile watches or encoding attempts as appropriate, rather than deduplicating videos.
+- Offline runtime, average duration/file size, channels and longest saved video accompany native SVG
+  decision/quality doughnuts and a daily activity chart. Quiet days can be shown in the daily table.
+- Candidate playback switches to the candidate's profile before opening its category context.
+- Backend checks: 158 passed, 4 skipped. Frontend type checks and production build pass.
+
 ## Done
 - **Backend** (`backend/bt`, 106 tests pass, `BT_DATA_DIR=$(mktemp -d) .venv/bin/pytest -q`; `BT_LIVE=1` for network tests)
   - Core API: profiles, categories, feeds, channels, feedback, lessons, history, settings, cookies, auth (optional `BT_PASSWORD`).

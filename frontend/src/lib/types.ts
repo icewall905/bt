@@ -307,6 +307,7 @@ export interface DownloaderState {
 
 export interface DownloadsResponse {
 	items: DownloadItem[];
+	reencode?: { queued: number; failed: number };
 	totals: { used_bytes: number; max_bytes: number; counts?: Record<string, number> };
 	downloader: DownloaderState | null;
 }
@@ -449,6 +450,18 @@ export interface StatsDay {
 }
 
 export interface StatsPageData {
+	decisions: Record<string, number>;
+	library: {
+		duration_s: number; duration_known: number; duration_unknown: number;
+		average_duration_s: number; average_size_bytes: number; channels: number;
+		quality: { label: string; count: number }[];
+		longest: { id: string; title: string; duration_s: number } | null;
+	};
+	reencode: {
+		queued: number; kept_not_smaller: number; job_errors: number; encoded_copies: number;
+		recorded_saved: number; recorded_not_smaller: number; recorded_failed: number;
+		original_bytes: number; saved_bytes: number;
+	};
 	overview: {
 		videos: number;
 		candidates: {
@@ -471,4 +484,20 @@ export interface StatsPageData {
 	};
 	categories: StatsCategoryRow[];
 	daily: StatsDay[];
+}
+
+export interface StatsExploreFilter {
+	metric: string; category_id?: number; day?: string; height?: number;
+}
+
+export interface StatsExploreItem {
+	key: string; video_id: string | null; channel_id: string | null; title: string; channel_name: string; duration_s: number;
+	offline: boolean; candidate_id: number | null; category_id: number | null;
+	category_name: string; profile_id: number | null; profile_name: string; detail: string;
+	score: number | null; size_bytes: number; height: number; rating: number | null;
+	original_bytes: number; output_bytes: number;
+}
+
+export interface StatsExploreData {
+	items: StatsExploreItem[]; total: number; offset: number; limit: number;
 }

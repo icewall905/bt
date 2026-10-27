@@ -59,6 +59,13 @@
 		toast.success('Removed from the category');
 		close();
 	}
+	async function play() {
+		const target = data;
+		if (!target) return;
+		if (target.profile_id && target.profile_id !== session.profileId) await session.switchProfile(target.profile_id);
+		close();
+		goto(`/watch/${target.video.id}?c=${target.category_id}`);
+	}
 
 	// Shape the AI's future picks: feedback rides the normal pipeline (lessons, channel trust),
 	// and a dislike also flips this candidate to rejected so the judge/planner see it with the reason.
@@ -140,7 +147,7 @@
 	{/if}
 	{#snippet footer()}
 		{#if data}
-			<button class="btn primary" use:focusable={{ autofocus: true, onSelect: () => (close(), goto(`/watch/${data!.video.id}?c=${data!.category_id}`)) }}>▶ Play</button>
+			<button class="btn primary" use:focusable={{ autofocus: true, onSelect: play }}>▶ Play</button>
 			<OfflineButton videoId={data.video.id} offline={!!v?.offline} size="normal" />
 			{#if data.status === 'accepted'}
 				<button class="btn" use:focusable={{ onSelect: dismiss }}>Remove from category</button>

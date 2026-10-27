@@ -1,18 +1,19 @@
 """Profiles, categories, feeds, channels, feedback, lessons, history, settings."""
 import json
 import re
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlmodel import Session, col, delete, func, select
 from sqlalchemy import update
+from sqlalchemy.orm import load_only
 
 from ..config import COOKIES_PATH, DEFAULT_SETTINGS
 from ..db import emit, get_session, get_settings, save_setting, yt_request_counts
 from ..playlist import order_playlist
-from ..models import (AgentEvent, Candidate, Category, Channel, Download, Feedback, Lesson, Profile, ProfileChannel, Video,
+from ..models import (AgentEvent, Candidate, Category, Channel, Download, Feedback, Lesson, Profile, ProfileChannel, ReencodeJob, ReencodeResult, Video,
                       WatchHistory, YtRequest, now)
 
 router = APIRouter()
@@ -764,6 +765,29 @@ def stats_page(days: int = 30, s: Session = Depends(get_session)):
         if st == "done":
             storage = int(size or 0)
     st_all = get_settings(s)["throttle"]
+    offline = select(Download, Video).join(Video, Video.id == Download.video_id, isouter=True).where(
+        Download.status == "done").options(load_only(Video.id, Video.title, Video.duration_s, Video.channel_id, Video.channel_name))
+    offline_rows = s.exec(offline).all()
+    durations = [v.duration_s for _, v in offline_rows if v and v.duration_s > 0]
+    longest = max((v for _, v in offline_rows if v and v.duration_s > 0), key=lambda v: v.duration_s, default=None)
+    heights = {}
+    for download, _ in offline_rows:
+        label = f"{download.height}p" if download.height else "Unknown"
+        heights[label] = heights.get(label, 0) + 1
+    # A mutually exclusive breakdown: dismissed entries take precedence over their old verdict.
+    decisions = {"accepted": 0, "rejected_ai": 0, "rejected_family": 0, "review": 0, "dismissed": 0, "error": 0}
+    for status, vid, cid, dismissed in s.exec(select(Candidate.status, Candidate.video_id, Candidate.category_id,
+                                                    Candidate.dismissed).where(cat_where)).all():
+        if dismissed:
+            key = "dismissed"
+        elif status == "rejected":
+            key = "rejected_family" if (vid, cid) in fam_pairs else "rejected_ai"
+        elif status in ("found", "enriched"):
+            key = "review"
+        else:
+            key = status
+        if key in decisions:
+            decisions[key] += 1
     overview = {
         "videos": s.exec(select(func.count()).select_from(Video)).one(),
         "candidates": {
@@ -842,4 +866,38 @@ def stats_page(days: int = 30, s: Session = Depends(get_session)):
         if d in daily:
             daily[d]["rejected_family" if (vid, cid) in fam_pairs else "rejected_ai"] += 1
 
-    return {"overview": overview, "categories": list(per_cat.values()), "daily": list(daily.values())}
+    results = {outcome: (n, int(original or 0), int(output or 0))
+               for outcome, n, original, output in s.exec(
+                   select(ReencodeResult.outcome, func.count(), func.sum(ReencodeResult.original_bytes),
+                          func.sum(ReencodeResult.output_bytes)).group_by(ReencodeResult.outcome)).all()}
+    saved_count, saved_original, saved_output = results.get("saved", (0, 0, 0))
+    jobs = s.exec(select(ReencodeJob)).all()
+    reencode = {
+        "queued": sum(j.status == "queued" for j in jobs),
+        "kept_not_smaller": sum(j.status == "error" and j.error == "Output was not smaller; original kept" for j in jobs),
+        "job_errors": sum(j.status == "error" and j.error != "Output was not smaller; original kept" for j in jobs),
+        "encoded_copies": s.exec(select(func.count()).select_from(Download)
+                                 .where(Download.status == "done", Download.vcodec == "h264 (NVENC)")).one(),
+        "recorded_saved": saved_count,
+        "recorded_not_smaller": results.get("not_smaller", (0, 0, 0))[0],
+        "recorded_failed": results.get("failed", (0, 0, 0))[0],
+        "original_bytes": saved_original,
+        "saved_bytes": saved_original - saved_output,
+    }
+    return {"overview": overview, "categories": list(per_cat.values()), "daily": list(daily.values()),
+            "reencode": reencode, "decisions": decisions,
+            "library": {"duration_s": sum(durations), "duration_known": len(durations),
+                        "duration_unknown": len(offline_rows) - len(durations),
+                        "average_duration_s": round(sum(durations) / len(durations)) if durations else 0,
+                        "average_size_bytes": round(storage / len(offline_rows)) if offline_rows else 0,
+                        "channels": len({v.channel_id or v.channel_name for _, v in offline_rows if v and (v.channel_id or v.channel_name)}),
+                        "quality": [{"label": label, "count": count} for label, count in sorted(heights.items())],
+                        "longest": {"id": longest.id, "title": longest.title, "duration_s": longest.duration_s} if longest else None}}
+
+
+@router.get("/stats/explore")
+def stats_explore(metric: str, category_id: Optional[int] = None, day: Optional[date] = None,
+                  offset: int = Query(0, ge=0), limit: int = Query(40, ge=1, le=100),
+                  height: Optional[int] = Query(None, ge=0), s: Session = Depends(get_session)):
+    from ..stats_details import explore
+    return explore(s, metric, category_id, day, offset, limit, height)

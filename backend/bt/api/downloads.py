@@ -6,11 +6,12 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlmodel import Session, col, select
 
 from ..db import get_kv, get_session, get_settings
 from ..downloader.service import GB, delete_files, used_bytes
-from ..models import Download, Video, now
+from ..models import Download, ReencodeJob, Video, now
 from .core import profile_id, video_out
 
 router = APIRouter()
@@ -36,7 +37,9 @@ def list_downloads(s: Session = Depends(get_session)):
         items.append({"video_id": d.video_id, **download_out(d), "created_at": d.created_at,
                       "finished_at": d.finished_at, "last_played_at": d.last_played_at,
                       "video": video_out(v, offline=d.status == "done") if v else {"id": d.video_id}})
-    return {"items": items,
+    jobs = s.exec(select(ReencodeJob)).all()
+    return {"items": items, "reencode": {"queued": sum(j.status == "queued" for j in jobs),
+                                          "failed": sum(j.status == "error" for j in jobs)},
             "totals": {"used_bytes": used_bytes(s), "max_bytes": int(float(cfg.get("max_gb") or 0) * GB),
                        "counts": counts},
             "state": get_kv("downloader_state", {"state": "offline"})}
@@ -44,6 +47,24 @@ def list_downloads(s: Session = Depends(get_session)):
 
 class DownloadIn(BaseModel):
     video_id: str
+
+
+@router.post("/downloads/reencode")
+def queue_reencode(s: Session = Depends(get_session)):
+    """Queue saved copies that have not already been re-encoded; retry failed jobs."""
+    n = 0
+    for d in s.exec(select(Download).where(Download.status == "done")).all():
+        if d.vcodec == "h264 (NVENC)":
+            continue
+        job = s.get(ReencodeJob, d.video_id)
+        if job and job.status == "queued":
+            continue
+        job = job or ReencodeJob(video_id=d.video_id)
+        job.status, job.error = "queued", ""
+        s.add(job)
+        n += 1
+    s.commit()
+    return {"queued": n}
 
 
 @router.post("/downloads")
@@ -64,6 +85,9 @@ def queue_download(body: DownloadIn, pid: int = Depends(profile_id), s: Session 
 
 
 def _remove(s: Session, d: Download) -> None:
+    job = s.get(ReencodeJob, d.video_id)
+    if job:
+        s.delete(job)
     delete_files(d)  # the downloader also notices (status != downloading) and stops within ~2 s
     d.status, d.pinned, d.size_bytes, d.progress = "evicted", False, 0, 0.0
     s.add(d)
@@ -71,6 +95,7 @@ def _remove(s: Session, d: Download) -> None:
 
 @router.delete("/downloads/{video_id}")
 def delete_download(video_id: str, s: Session = Depends(get_session)):
+    s.exec(text("BEGIN IMMEDIATE"))
     d = s.get(Download, video_id)
     if not d:
         raise HTTPException(404, "not downloaded")
@@ -81,6 +106,7 @@ def delete_download(video_id: str, s: Session = Depends(get_session)):
 
 @router.delete("/downloads")
 def clear_downloads(s: Session = Depends(get_session)):
+    s.exec(text("BEGIN IMMEDIATE"))
     n = 0
     for d in s.exec(select(Download).where(Download.status != "evicted")).all():
         _remove(s, d)

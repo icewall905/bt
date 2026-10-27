@@ -17,12 +17,13 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from sqlmodel import Session, col, func, select
+from sqlalchemy import text
 
 from .. import ytdl
 from ..config import MEDIA_DIR
 from ..db import emit, get_agent_control, get_agent_state, get_settings, save_setting, session, \
     yt_request_counts
-from ..models import Candidate, Category, Download, Video, WatchHistory, now
+from ..models import Candidate, Category, Download, ReencodeJob, ReencodeResult, Video, WatchHistory, now
 from . import transcode
 
 log = logging.getLogger("bt.downloader")
@@ -255,6 +256,7 @@ class Downloader:
         self._state: dict = {}
         self._last_state_write = 0.0
         self._nvenc_dead = False  # set after the first NVENC-unavailable failure; stops retrying
+        self._encode_result: Optional[ReencodeResult] = None
 
     # ---- state
     def set_state(self, state: str, force: bool = True, **kw) -> None:
@@ -321,6 +323,7 @@ class Downloader:
     # ---- one download
     def run_one(self, d: Download, cfg: dict) -> str:
         vid = d.video_id
+        self._encode_result = None
         with session() as s:
             v = s.get(Video, vid)
             title = v.title if v and v.title else vid
@@ -410,6 +413,8 @@ class Downloader:
                 row.status, row.path, row.size_bytes, row.progress = "done", rel_path(vid), size, 1.0
                 row.height, row.vcodec, row.error, row.finished_at = res["height"], res["vcodec"], "", now()
                 s.add(row)
+                if self._encode_result:
+                    s.add(self._encode_result)
                 if res.get("info"):
                     try:
                         ytdl.upsert_video(s, res["info"])  # fills title etc. for manual "Save offline" placeholders
@@ -438,7 +443,16 @@ class Downloader:
             on_progress=lambda f: self.set_state("transcoding", force=False, video_id=vid, title=title,
                                                  progress=f, detail=title),
             should_abort=lambda: self._abort_reason(vid))
+        if status != "aborted":
+            output_size = out.stat().st_size if status == "ok" and out.is_file() else 0
+            outcome = ("saved" if output_size < before else "not_smaller") if status == "ok" else "failed"
+            self._encode_result = ReencodeResult(video_id=vid, source="new", outcome=outcome,
+                                                 original_bytes=before, output_bytes=output_size)
         if status == "ok":
+            if out.stat().st_size >= before:
+                out.unlink(missing_ok=True)
+                log.info("nvenc %s: output was not smaller; keeping original", vid)
+                return ""
             os.replace(out, src)
             after = src.stat().st_size
             log.info("nvenc %s: %.0f -> %.0f MB in %.0fs", vid, before / 1e6, after / 1e6, time.monotonic() - t0)
@@ -465,9 +479,92 @@ class Downloader:
             s.add(row)
             s.commit()
 
+    def reencode_existing(self, vid: str) -> None:
+        with session() as s:
+            row = s.get(Download, vid)
+            job = s.get(ReencodeJob, vid)
+            if not job or not row or row.status != "done":
+                if job:
+                    s.delete(job)
+                    s.commit()
+                return
+            src = abs_path(row.path)
+            v = s.get(Video, vid)
+            title = (v.title if v else "") or vid
+            duration = (v.duration_s if v else 0) or 0
+        if not src or not src.is_file():
+            with session() as s:
+                job = s.get(ReencodeJob, vid)
+                if job:
+                    job.status, job.error = "error", "Saved file is missing"
+                    s.add(job)
+                    s.commit()
+            return
+        work = staging_dir(vid)
+        work.mkdir(parents=True, exist_ok=True)
+        out = work / f"{vid}.nvenc.mp4"
+        self.set_state("transcoding", video_id=vid, title=title, detail=title)
+
+        def abort():
+            if self.stop.is_set() or self.blocker(check_cap=False):
+                return "paused"
+            with session() as s:
+                d, j = s.get(Download, vid), s.get(ReencodeJob, vid)
+                return None if d and d.status == "done" and j and j.status == "queued" else "removed"
+
+        try:
+            status, detail = transcode.reencode(src, out, duration_s=duration,
+                on_progress=lambda f: self.set_state("transcoding", force=False, video_id=vid, title=title,
+                                                     progress=f, detail=title), should_abort=abort)
+            if status == "aborted":
+                return
+            with session() as s:
+                s.exec(text("BEGIN IMMEDIATE"))
+                row, job = s.get(Download, vid), s.get(ReencodeJob, vid)
+                if not row or row.status != "done" or not job or job.status != "queued" or not src.is_file():
+                    return
+                if status == "ok" and out.stat().st_size < src.stat().st_size:
+                    before = src.stat().st_size
+                    size = out.stat().st_size
+                    os.replace(out, src)
+                    row.size_bytes, row.vcodec = size, "h264 (NVENC)"
+                    s.add(row)
+                    s.delete(job)
+                    s.add(ReencodeResult(video_id=vid, outcome="saved", original_bytes=before, output_bytes=size))
+                    emit_message = f"✅ Re-encoded saved video on GPU: {title}"
+                else:
+                    output_size = out.stat().st_size if status == "ok" and out.is_file() else 0
+                    s.add(ReencodeResult(video_id=vid, outcome="not_smaller" if status == "ok" else "failed",
+                                         original_bytes=src.stat().st_size, output_bytes=output_size))
+                    job.status = "error"
+                    job.error = (detail or "Output was not smaller; original kept")[:500]
+                    s.add(job)
+                    emit_message = f"⚠️ Re-encoding {title}: {job.error[:160]}"
+                    if status == "unavailable":
+                        self._nvenc_dead = True
+                s.commit()
+            emit("download", emit_message, "success" if status == "ok" and not out.exists() else "warn", video_id=vid)
+        finally:
+            out.unlink(missing_ok=True)
+            try:
+                work.rmdir()
+            except OSError:
+                pass
+
     # ---- loop
     def iterate(self) -> float:
         """One scheduling step. Returns seconds to sleep before the next step."""
+        b = self.blocker(check_cap=False)
+        if b:
+            self.set_state(b[0], detail=b[1])
+            return b[2]
+        with session() as s:
+            job = s.exec(select(ReencodeJob).where(ReencodeJob.status == "queued")
+                         .order_by(ReencodeJob.created_at)).first()
+            job_id = job.video_id if job else None
+        if job_id and not self._nvenc_dead:
+            self.reencode_existing(job_id)
+            return 0
         b = self.blocker()
         if b:
             self.set_state(b[0], detail=b[1])
@@ -478,7 +575,10 @@ class Downloader:
             make_room(s, cfg, 0, allow_wanted=False)
             d, cat = next_download(s, self.last_category)
         if not d:
-            self.set_state("idle", detail="Nothing to download")
+            if job_id and self._nvenc_dead:
+                self.set_state("idle", detail="GPU unavailable; re-encoding is waiting for the downloader to restart")
+            else:
+                self.set_state("idle", detail="Nothing to download")
             return 30
         r = self.run_one(d, cfg)
         if r == "done" or r == "error":

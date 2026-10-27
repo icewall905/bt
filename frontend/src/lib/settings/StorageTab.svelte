@@ -20,6 +20,7 @@
 	let filter = $state<'all' | 'done' | 'active' | 'error'>('all');
 	let confirmClear = $state(false);
 	let clearing = $state(false);
+	let reencoding = $state(false);
 
 	async function load() {
 		try {
@@ -67,6 +68,16 @@
 			clearing = false;
 		}
 	}
+	async function reencodeSaved() {
+		reencoding = true;
+		try {
+			const r = await api.reencodeDownloads();
+			toast.success(r.queued ? `Queued ${r.queued} saved video${r.queued === 1 ? '' : 's'} for GPU re-encoding` : 'No additional saved videos to queue');
+			await load();
+		} finally {
+			reencoding = false;
+		}
+	}
 
 	const HEIGHTS = [480, 720, 1080, 1440].map((h) => ({ value: h, label: `${h}p`, hint: h === 1080 ? 'About 0.5 to 1 GB per 20 minutes' : h === 720 ? 'About half the size of 1080p' : undefined }));
 	const RATES = [
@@ -100,6 +111,9 @@
 				{#if dl?.state === 'downloading'}
 					<strong>Downloading</strong> {dl.title || dl.video_id}
 					<span class="muted">{Math.round((dl.progress ?? 0) * 100)}%{dl.speed ? `, ${fmtBytes(dl.speed)}/s` : ''}{dl.eta ? `, ${fmtCountdown(Math.round(dl.eta))} left` : ''}</span>
+				{:else if dl?.state === 'transcoding'}
+					<strong>Re-encoding on the GPU</strong> {dl.title || dl.video_id}
+					<span class="muted">{Math.round((dl.progress ?? 0) * 100)}%</span>
 				{:else if dl}
 					<span class="muted">{DL_LABEL[dl.state] ?? dl.state}{dl.detail ? `: ${dl.detail}` : ''}</span>
 				{/if}
@@ -119,6 +133,8 @@
 		<Select label="Download speed limit" hint="Keeps downloads from hogging the internet connection." bind:value={d.value.rate_limit} options={RATES} />
 		<Stepper label="Pause between downloads" hint="A short random wait keeps the traffic pattern polite." bind:value={d.value.min_gap_s} min={0} max={3600} step={10} format={(v) => (v >= 60 ? `${Math.round(v / 60)} min` : `${v} s`)} />
 		<Toggle label="HW Transcoding" hint="Shrink new downloads about 40–50% by re-encoding them on the server's NVIDIA GPU (NVENC). Needs the GPU wired to the downloader; when it is missing, files are kept as downloaded." bind:checked={d.value.hw_transcode} />
+		<div><button class="btn" disabled={reencoding || !(data?.items ?? []).some((i) => i.status === 'done')} use:focusable={{ onSelect: reencodeSaved }}>Re-encode saved videos on GPU</button>
+			<p class="small muted">Processes existing saved videos in the background, independently of the toggle above. Originals stay playable and are kept if encoding fails or does not save space.{data?.reencode?.queued ? ` ${data.reencode.queued} waiting or in progress.` : ''}{data?.reencode?.failed ? ` ${data.reencode.failed} were not re-encoded; see activity for details or press the button to retry.` : ''}</p></div>
 	</div>
 	<SaveBar dirty={d.dirty} busy={d.busy} onsave={() => d.save('Storage settings saved')} onreset={() => d.reset()} />
 </Section>

@@ -188,3 +188,20 @@ class Download(SQLModel, table=True):
     created_at: datetime = Field(default_factory=now)
     finished_at: Optional[datetime] = None
     last_played_at: Optional[datetime] = None
+
+
+class ReencodeJob(SQLModel, table=True):
+    video_id: str = Field(primary_key=True)
+    status: str = "queued"  # queued | error
+    error: str = ""
+    created_at: datetime = Field(default_factory=now)
+
+
+class ReencodeResult(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    video_id: str = Field(index=True)
+    source: str = "existing"  # existing | new
+    outcome: str = ""  # saved | not_smaller | failed
+    original_bytes: int = 0
+    output_bytes: int = 0
+    created_at: datetime = Field(default_factory=now, index=True)

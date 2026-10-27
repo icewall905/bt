@@ -14,7 +14,7 @@ from bt.config import MEDIA_DIR
 from bt.db import init_db, save_setting, session, set_agent_state, update_agent_control
 from bt.downloader import service as svc
 from bt.downloader import transcode
-from bt.models import Candidate, Category, Download, Profile, Video, WatchHistory, YtRequest, now
+from bt.models import Candidate, Category, Download, Profile, ReencodeJob, ReencodeResult, Video, WatchHistory, YtRequest, now
 
 IDS = [f"vid{i:08d}" for i in range(10)]  # 11 chars
 
@@ -23,7 +23,7 @@ IDS = [f"vid{i:08d}" for i in range(10)]  # 11 chars
 def clean():
     init_db()
     with session() as s:
-        for m in (Download, Candidate, WatchHistory, Category, YtRequest):
+        for m in (ReencodeResult, ReencodeJob, Download, Candidate, WatchHistory, Category, YtRequest):
             s.exec(delete(m))
         s.commit()
     save_setting("cache", {"enabled": True, "max_gb": 1, "max_height": 720, "rate_limit": 0, "min_gap_s": 0,
@@ -64,6 +64,85 @@ def _done(s, vid, size, pinned=False, played_ago=None):
     s.add(d)
     s.commit()
     return d
+
+
+def test_existing_reencode_queue_and_preserve_playability(monkeypatch):
+    from bt.api.downloads import queue_reencode
+    with session() as s:
+        _done(s, IDS[0], 10)
+        other = _done(s, IDS[1], 10)
+        other.vcodec = "h264 (NVENC)"
+        s.add(other)
+        s.commit()
+        assert queue_reencode(s) == {"queued": 1}
+        assert queue_reencode(s) == {"queued": 0}
+        assert s.get(Download, IDS[0]).status == "done"
+    def encode(src, dst, **kwargs):
+        assert src.read_bytes() == b"x" * 10
+        dst.write_bytes(b"small")
+        return "ok", ""
+    monkeypatch.setattr(transcode, "reencode", encode)
+    svc.Downloader().reencode_existing(IDS[0])
+    with session() as s:
+        row = s.get(Download, IDS[0])
+        assert row.status == "done" and row.size_bytes == 5 and row.vcodec == "h264 (NVENC)"
+        assert s.get(ReencodeJob, IDS[0]) is None
+        result = s.exec(select(ReencodeResult)).one()
+        assert (result.outcome, result.original_bytes, result.output_bytes) == ("saved", 10, 5)
+    assert (MEDIA_DIR / svc.rel_path(IDS[0])).read_bytes() == b"small"
+
+
+def test_existing_reencode_keeps_original_when_larger_or_failed(monkeypatch):
+    with session() as s:
+        _done(s, IDS[0], 10)
+        s.add(ReencodeJob(video_id=IDS[0]))
+        s.commit()
+    def encode(src, dst, **kwargs):
+        dst.write_bytes(b"x" * 20)
+        return "ok", ""
+    monkeypatch.setattr(transcode, "reencode", encode)
+    svc.Downloader().reencode_existing(IDS[0])
+    with session() as s:
+        assert s.get(ReencodeJob, IDS[0]).status == "error"
+        assert s.get(Download, IDS[0]).size_bytes == 10
+        result = s.exec(select(ReencodeResult)).one()
+        assert (result.outcome, result.original_bytes, result.output_bytes) == ("not_smaller", 10, 20)
+    assert (MEDIA_DIR / svc.rel_path(IDS[0])).read_bytes() == b"x" * 10
+
+
+def test_existing_reencode_delete_during_encode_does_not_restore_file(monkeypatch):
+    from bt.api.downloads import delete_download
+    with session() as s:
+        _done(s, IDS[0], 10)
+        s.add(ReencodeJob(video_id=IDS[0]))
+        s.commit()
+    def encode(src, dst, **kwargs):
+        dst.write_bytes(b"small")
+        with session() as s:
+            delete_download(IDS[0], s)
+        return "ok", ""
+    monkeypatch.setattr(transcode, "reencode", encode)
+    svc.Downloader().reencode_existing(IDS[0])
+    with session() as s:
+        assert s.get(Download, IDS[0]).status == "evicted"
+        assert s.get(ReencodeJob, IDS[0]) is None
+    assert not (MEDIA_DIR / svc.rel_path(IDS[0])).exists()
+
+
+def test_reencode_stats_distinguish_current_jobs_from_recorded_attempts():
+    from bt.api.core import stats_page
+    with session() as s:
+        row = _done(s, IDS[0], 5)
+        row.vcodec = "h264 (NVENC)"
+        s.add(row)
+        s.add(ReencodeJob(video_id=IDS[1]))
+        s.add(ReencodeJob(video_id=IDS[2], status="error", error="Output was not smaller; original kept"))
+        s.add(ReencodeResult(video_id=IDS[0], outcome="saved", original_bytes=10, output_bytes=5))
+        s.add(ReencodeResult(video_id=IDS[2], outcome="not_smaller", original_bytes=10, output_bytes=12))
+        s.commit()
+        stats = stats_page(7, s)["reencode"]
+        assert (stats["queued"], stats["encoded_copies"], stats["kept_not_smaller"]) == (1, 1, 1)
+        assert (stats["recorded_saved"], stats["recorded_not_smaller"], stats["saved_bytes"]) == (1, 1, 5)
 
 
 def test_sync_queue_and_next_round_robin():
@@ -238,10 +317,23 @@ def test_run_one_hw_transcode_replaces_file(monkeypatch):
         row = s.get(Download, IDS[0])
         assert (row.status, row.size_bytes) == ("done", 400)
         assert row.vcodec == "h264 (NVENC)"
+        result = s.exec(select(ReencodeResult)).one()
+        assert (result.source, result.outcome, result.original_bytes, result.output_bytes) == ("new", "saved", 1000, 400)
     assert (MEDIA_DIR / svc.rel_path(IDS[0])).read_bytes() == b"\7" * 400
     assert not svc.staging_dir(IDS[0]).exists()
     from bt.db import get_kv
     assert get_kv("downloader_state")["state"] == "transcoding"
+
+
+def test_run_one_hw_transcode_keeps_smaller_original(monkeypatch):
+    monkeypatch.setattr(svc.ytdl, "download", _fake_download(content=b"x" * 100))
+    _, fake = _fake_reencode()
+    monkeypatch.setattr(svc.transcode, "reencode", fake)
+    assert svc.Downloader().run_one(_queue(IDS[0]), {"max_gb": 1, "hw_transcode": True}) == "done"
+    with session() as s:
+        row = s.get(Download, IDS[0])
+        assert row.size_bytes == 100 and row.vcodec == "avc1.4d401f"
+    assert (MEDIA_DIR / svc.rel_path(IDS[0])).read_bytes() == b"x" * 100
 
 
 def test_run_one_hw_transcode_unavailable_keeps_original_and_disarms(monkeypatch):

@@ -24,6 +24,8 @@ import type {
 	SbSegment,
 	Settings,
 	StatsPageData,
+	StatsExploreData,
+	StatsExploreFilter,
 	Video,
 	VideoDetail,
 	AgentControl,
@@ -188,6 +190,7 @@ export const api = {
 		const t = (o.totals ?? {}) as DownloadsResponse['totals'];
 		return {
 			items,
+			reencode: o.reencode as DownloadsResponse['reencode'],
 			downloader: dl,
 			totals: {
 				...t,
@@ -197,6 +200,7 @@ export const api = {
 		};
 	},
 	saveOffline: (video_id: string) => post<DownloadItem>('/downloads', { video_id }),
+	reencodeDownloads: () => post<{ queued: number }>('/downloads/reencode', {}),
 	clearDownloads: () => del<{ ok: boolean; removed: number }>('/downloads'),
 	removeDownload: (video_id: string) => del<{ ok: boolean }>(`/downloads/${encodeURIComponent(video_id)}`),
 	fileUrl: (id: string) => `/api/video/${encodeURIComponent(id)}/file`,
@@ -229,6 +233,7 @@ export const api = {
 		post<ImportFeedResult>('/ytimport/feed', body, { toast: false }),
 	stats: () => get<{ videos: number; candidates_24h: number; lessons: number }>('/stats', { toast: false }),
 	statsPage: (days = 30) => get<StatsPageData>(`/stats/page${q({ days })}`, { toast: false }),
+	statsExplore: (filter: StatsExploreFilter, offset = 0) => get<StatsExploreData>(`/stats/explore${q({ ...filter, offset })}`),
 
 	// agent
 	agentStatus: () => get<AgentStatus>('/agent/status', { toast: false }),
