@@ -189,7 +189,7 @@
 				{#each queues as q (q.category_id)}
 					<div class="q" style:--cat={q.color} class:off={!q.enabled}>
 						<div class="qh">
-							<span class="qn">{q.emoji} {q.name}</span>
+							<span class="qn"><a class="qlink" href="/category/{q.category_id}" use:focusable={{ group: `q-${q.category_id}`, id: `q-name-${q.category_id}` }}>{q.emoji} {q.name}</a></span>
 							{#if !q.enabled}<span class="faint small">disabled</span>{/if}
 							<span class="spacer"></span>
 							<a class="btn mini" href="/category/{q.category_id}" use:focusable={{ group: `q-${q.category_id}` }}>Open</a>
@@ -438,6 +438,14 @@
 	}
 	.qn {
 		font-weight: 650;
+	}
+	.qn .qlink {
+		color: inherit;
+	}
+	.qn .qlink:hover {
+		text-decoration: underline;
+		text-decoration-color: var(--cat, var(--ai));
+		text-underline-offset: 0.3rem;
 	}
 	.gauge span {
 		background: var(--cat);

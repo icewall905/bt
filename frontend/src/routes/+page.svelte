@@ -196,7 +196,7 @@
 				{/each}
 			</Row>
 		{:else if row.kind === 'category'}
-			<Row title={row.title} emoji={row.emoji} color={row.color} badge={row.items.length ? `AI found ${row.items.length}` : undefined}>
+			<Row title={row.title} emoji={row.emoji} color={row.color} href="/category/{row.category_id}" badge={row.items.length ? `AI found ${row.items.length}` : undefined}>
 				{#if row.items.length === 0}
 					<LookingPlaceholder categoryId={row.category_id} color={row.color} />
 					<a class="more" href="/category/{row.category_id}" style:--cat={row.color} use:focusable={{ group: `row-${row.category_id}`, id: `more-${row.category_id}` }}>

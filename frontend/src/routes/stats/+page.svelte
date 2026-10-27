@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { api } from '$lib/api';
 	import { focusable } from '$lib/nav';
+	import { session } from '$lib/stores/session.svelte';
+	import { toast } from '$lib/stores/toast.svelte';
 	import { fmtBytes, fmtCount, fmtDuration } from '$lib/util';
-	import type { StatsPageData } from '$lib/types';
+	import type { StatsCategoryRow, StatsPageData } from '$lib/types';
 
 	let data = $state<StatsPageData | null>(null);
 	let days = $state(30);
@@ -42,6 +45,15 @@
 		Object.entries(d)
 			.map(([id, n]) => `${catOf(id)?.emoji ?? '•'} ×${n}`)
 			.join(' ');
+
+	/** Stats span every profile; a category only opens under its own profile. */
+	async function openCategory(c: StatsCategoryRow, e?: Event) {
+		if (c.profile_id === session.profileId) return; // plain link navigation
+		e?.preventDefault();
+		await session.switchProfile(c.profile_id);
+		toast.info(`Switched to ${c.profile_name}'s profile`);
+		goto(`/category/${c.id}`);
+	}
 </script>
 
 <svelte:head><title>Statistics · BetterTube</title></svelte:head>
@@ -103,7 +115,13 @@
 						<tbody>
 							{#each cats as c (c.id)}
 								<tr class:off={!c.enabled}>
-									<td><span class="dot" style:--cat={c.color}></span>{c.emoji} {c.name}<span class="profile-name">{c.profile_name}</span>{#if !c.enabled}<span class="faint tiny"> off</span>{/if}</td>
+									<td>
+										<a class="cat" href="/category/{c.id}" style:--cat={c.color} use:focusable={{ group: 'stats-cats', id: `cat-${c.id}`, onSelect: (e) => openCategory(c, e) }}>
+											<span class="dot"></span>{c.emoji} {c.name}
+										</a>
+										<span class="profile-name">{c.profile_name}</span>
+										{#if !c.enabled}<span class="faint tiny"> off</span>{/if}
+									</td>
 									<td>
 										<span class="num-s">{c.counts.in_queue}/{c.target}</span>
 										<span class="gauge"><span style:width="{Math.min(100, (c.counts.in_queue / Math.max(1, c.target)) * 100)}%"></span></span>
@@ -261,6 +279,11 @@
 		display: inline-block;
 		margin-right: 0.5rem;
 		box-shadow: 0 0 8px var(--cat, transparent);
+	}
+	.cat:hover {
+		text-decoration: underline;
+		text-decoration-color: var(--cat, var(--accent));
+		text-underline-offset: 0.3rem;
 	}
 	.num-s {
 		font-variant-numeric: tabular-nums;

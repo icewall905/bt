@@ -87,7 +87,7 @@
 				<div class="item" class:off={!c.enabled} style:--cat={c.color}>
 					<span class="e">{c.emoji}</span>
 					<div class="info">
-						<strong>{c.name}</strong>
+						<strong><a class="catname" href="/category/{c.id}" use:focusable={{ group: `cat-${c.id}`, id: `cat-view-${c.id}` }}>{c.name}</a></strong>
 						<span class="small muted">{c.stats?.accepted ?? 0} ready, {(c.stats?.found ?? 0) + (c.stats?.enriched ?? 0)} in review, {c.stats?.rejected ?? 0} rejected{c.kid_safe ? ', kid-safe' : ''}</span>
 					</div>
 					<button class="btn mini" aria-label="Move up" disabled={i === 0} use:focusable={{ group: `cat-${c.id}`, disabled: i === 0, onSelect: () => move(c, -1) }}>▲</button>
@@ -135,6 +135,11 @@
 		flex: 1;
 		display: grid;
 		min-width: 0;
+	}
+	.info .catname:hover {
+		text-decoration: underline;
+		text-decoration-color: var(--cat, var(--accent));
+		text-underline-offset: 0.3rem;
 	}
 	.btn.mini {
 		min-height: 2.2rem;

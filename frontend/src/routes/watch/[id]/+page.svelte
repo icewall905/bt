@@ -669,7 +669,7 @@
 					<h1>{title || ' '}</h1>
 					<p class="muted">
 						{detail?.channel_name ?? ''}
-						{#if category}<span class="catchip" style:--cat={category.color}>{category.emoji} {category.name}</span>{/if}
+						{#if category}<a class="catchip" href="/category/{category.id}" style:--cat={category.color} use:focusable={{ group: 'p-top', id: 'p-cat', scroll: 'none' }}>{category.emoji} {category.name}</a>{/if}
 						{#if chapter}<span class="chap">{chapter.title}</span>{/if}
 					</p>
 				</div>
@@ -827,7 +827,9 @@
 							{@const c = session.categoryById(ic.category_id)}
 							<div class="ai-card" style:--cat={c?.color ?? 'var(--ai)'}>
 								<div class="hstack small">
-									<strong>{c?.emoji} {c?.name ?? 'Category'}</strong>
+									<strong>
+										{#if c}<a class="aicat" href="/category/{c.id}" use:focusable={{ group: 'i-ai', id: `ai-cat-${ic.category_id}` }}>{c.emoji} {c.name}</a>{:else}Category{/if}
+									</strong>
 									{#if ic.score != null}<span class="score">✦ {ic.score}</span>{/if}
 								</div>
 								{#if ic.summary}<p>{ic.summary}</p>{/if}
@@ -1015,6 +1017,9 @@
 		font-weight: 650;
 		color: #fff;
 		background: color-mix(in srgb, var(--cat) 35%, transparent);
+	}
+	a.catchip:hover {
+		background: color-mix(in srgb, var(--cat) 55%, transparent);
 	}
 	.chap {
 		font-size: 0.85rem;
@@ -1283,6 +1288,14 @@
 		border-radius: var(--r-md);
 		background: color-mix(in srgb, var(--cat) 10%, rgba(255, 255, 255, 0.02));
 		border: 1px solid color-mix(in srgb, var(--cat) 35%, transparent);
+	}
+	.ai-card a.aicat {
+		color: inherit;
+	}
+	.ai-card a.aicat:hover {
+		text-decoration: underline;
+		text-decoration-color: var(--cat, var(--ai));
+		text-underline-offset: 0.3rem;
 	}
 	.ai-card ul {
 		margin: 0;

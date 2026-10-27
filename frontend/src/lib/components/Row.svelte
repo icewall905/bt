@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { focusable } from '$lib/nav';
 
 	interface Props {
 		title: string;
@@ -10,14 +11,21 @@
 		children: Snippet;
 		aside?: Snippet;
 	}
-	let { title, emoji, color, badge, children, aside }: Props = $props();
+	let { title, emoji, color, badge, href, children, aside }: Props = $props();
 </script>
 
 <section class="row" style:--cat={color ?? 'var(--ai)'}>
 	<header>
 		<h2>
-			{#if emoji}<span class="emo">{emoji}</span>{/if}
-			<span>{title}</span>
+			{#if href}
+				<a class="t" href={href} use:focusable={{ group: `head-${href}`, id: `head-${href}` }}>
+					{#if emoji}<span class="emo">{emoji}</span>{/if}
+					<span>{title}</span>
+				</a>
+			{:else}
+				{#if emoji}<span class="emo">{emoji}</span>{/if}
+				<span>{title}</span>
+			{/if}
 		</h2>
 		{#if badge}<span class="badge">{badge}</span>{/if}
 		<span class="spacer"></span>
@@ -44,6 +52,18 @@
 		display: flex;
 		align-items: center;
 		gap: 0.6rem;
+	}
+	h2 .t {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		color: inherit;
+		text-decoration: none;
+	}
+	h2 .t:hover span:not(.emo) {
+		text-decoration: underline;
+		text-decoration-color: var(--cat);
+		text-underline-offset: 0.35rem;
 	}
 	h2::before {
 		content: '';
