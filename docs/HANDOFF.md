@@ -19,7 +19,18 @@ Workflow: `/home/hnyg/AGENTS.md` (implement → independent review → fix → r
 - Offline runtime, average duration/file size, channels and longest saved video accompany native SVG
   decision/quality doughnuts and a daily activity chart. Quiet days can be shown in the daily table.
 - Candidate playback switches to the candidate's profile before opening its category context.
-- Backend checks: 158 passed, 4 skipped. Frontend type checks and production build pass.
+- **Downloads follow verdicts** (2026-10-27): videos rejected by Family (dislike) or Judge, and ones finished-watched
+  by any profile, are pulled from the queue and their saved copies deleted right away (`drop_unwanted` on the
+  feedback/history/seen endpoints; in-flight downloads abort via the control hook); the downloader sweeps every
+  iteration as a safety net. `sync_queue` never queues watched videos. Pinned saves and copies with a file request
+  in the last 10 min (someone may be streaming) are left for a later sweep. Backend 162 passed / 4 skipped.
+- **Hover previews** (2026-10-27): every video thumbnail (cards, candidate drawer, agent rows, status pill, stats
+  explorer, storage list, up-next, home hero) silently autoplays a muted looping preview on hover: the local copy
+  when offline, else DASH ≤540p via Shaka (same proxy as the player; `/fallback` is unusable on modern YouTube —
+  no muxed progressive formats). One preview at a time, 350 ms arm delay, teardown on leave. Shared `use:preview`
+  action in `$lib/preview.ts`; live test in `tests/content.spec.ts`. svelte-check clean, build OK, Playwright 43/43
+  offline + 2/2 with BT_LIVE=1.
+- Backend checks: 162 passed, 4 skipped. Frontend type checks and production build pass. Deployed 2026-10-27.
 
 ## Done
 - **Backend** (`backend/bt`, 106 tests pass, `BT_DATA_DIR=$(mktemp -d) .venv/bin/pytest -q`; `BT_LIVE=1` for network tests)
