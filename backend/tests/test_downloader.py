@@ -178,6 +178,103 @@ def test_retry_backoff_and_max_attempts():
     assert not svc._retry_ready(d, t)
 
 
+def test_purge_unwanted_rejected_and_watched():
+    """Rejected by Family/Judge (no accepted candidate left) and finished-watched copies are dropped;
+    a pinned save or a copy that may be streaming right now is kept."""
+    with session() as s:
+        a, b = _cat(s, "a"), _cat(s, "b")
+        _cand(s, a, IDS[0], 90, status="rejected")  # judge rejected the only candidate
+        _done(s, IDS[0], 100)
+        _cand(s, a, IDS[1], 90)  # accepted in one category...
+        _cand(s, b, IDS[1], 80, status="rejected")  # ...rejected in another: still wanted, keep
+        _done(s, IDS[1], 100)
+        _cand(s, a, IDS[2])  # watched to the end: drop
+        _done(s, IDS[2], 100)
+        s.add(WatchHistory(profile_id=a.profile_id, video_id=IDS[2], finished=True))
+        _cand(s, a, IDS[3])  # watched, but explicitly pinned: keep
+        _done(s, IDS[3], 100, pinned=True)
+        s.add(WatchHistory(profile_id=a.profile_id, video_id=IDS[3], finished=True))
+        _cand(s, a, IDS[4])  # watched, but maybe streaming right now: keep for the next sweep
+        _done(s, IDS[4], 100, played_ago=0.001)
+        s.add(WatchHistory(profile_id=a.profile_id, video_id=IDS[4], finished=True))
+        s.add(Download(video_id=IDS[5], status="queued"))  # queued, then rejected + watched: drop
+        s.add(Candidate(category_id=a.id, video_id=IDS[5], status="rejected"))
+        s.add(WatchHistory(profile_id=a.profile_id, video_id=IDS[5], finished=True))
+        s.commit()
+        assert svc.purge_unwanted(s) == 200  # two done copies (the queued row's file never existed)
+        assert svc.purge_unwanted(s) == 0  # idempotent
+    with session() as s:
+        st = {d.video_id: d.status for d in s.exec(select(Download)).all()}
+        assert st[IDS[0]] == st[IDS[2]] == st[IDS[5]] == "evicted"
+        assert st[IDS[1]] == st[IDS[3]] == st[IDS[4]] == "done"
+    for vid in (IDS[0], IDS[2], IDS[5]):
+        assert not (MEDIA_DIR / svc.rel_path(vid)).exists()
+    for vid in (IDS[1], IDS[3], IDS[4]):
+        assert (MEDIA_DIR / svc.rel_path(vid)).exists()
+    # once the playing stops, the sweep removes the watched copy
+    with session() as s:
+        d = s.get(Download, IDS[4])
+        d.last_played_at = now() - timedelta(seconds=svc.ACTIVE_PLAY_S + 1)
+        s.add(d)
+        s.commit()
+        assert svc.purge_unwanted(s) == 100
+
+
+def test_sync_queue_skips_watched():
+    with session() as s:
+        c = _cat(s)
+        _cand(s, c, IDS[0])  # watched by some profile: never downloaded
+        _cand(s, c, IDS[1])  # only started watching: queued
+        s.add(WatchHistory(profile_id=c.profile_id, video_id=IDS[0], finished=True))
+        s.add(WatchHistory(profile_id=c.profile_id, video_id=IDS[1], finished=False))
+        s.commit()
+        assert svc.sync_queue(s, {"auto": "accepted"}) == 1
+        assert {d.video_id for d in s.exec(select(Download).where(Download.status == "queued")).all()} == {IDS[1]}
+
+
+def test_family_reject_and_watch_finish_cancel_downloads():
+    """API hooks: a dislike flips the candidate and removes the queued copy immediately (aborting a
+    running download), finishing a video removes its saved copy; pinned saves survive a dislike."""
+    from fastapi.testclient import TestClient
+
+    from bt.main import app
+    with TestClient(app) as c:
+        cat = c.post("/api/categories", json={"name": "drop rule", "brief": "b"}).json()
+        cat_id = cat["id"]
+        with session() as s:
+            _cand(s, s.get(Category, cat_id), IDS[0], 90)  # queued, then disliked
+            _cand(s, s.get(Category, cat_id), IDS[1], 90)  # saved, watched to the end
+            _cand(s, s.get(Category, cat_id), IDS[2], 90)  # saved and pinned: dislike keeps it
+            _cand(s, s.get(Category, cat_id), IDS[3], 90)  # saved, "Seen it" without playing
+            s.add(Download(video_id=IDS[0], status="queued"))
+            _done(s, IDS[1], 100)
+            _done(s, IDS[2], 100, pinned=True)
+            _done(s, IDS[3], 100)
+            s.commit()
+        c.post("/api/feedback", json={"video_id": IDS[0], "category_id": cat_id, "rating": -1,
+                                      "chips": ["Too basic"]})
+        with session() as s:
+            assert s.get(Download, IDS[0]).status == "evicted"
+            assert not (MEDIA_DIR / svc.rel_path(IDS[0])).exists()
+            cand = s.exec(select(Candidate).where(Candidate.video_id == IDS[0])).one()
+            assert cand.status == "rejected" and cand.dismissed
+            assert any(f.startswith("Family:") for f in (cand.red_flags or []))
+        assert c.post("/api/history", json={"video_id": IDS[1], "position_s": 9.3, "duration_s": 10}).json()["finished"]
+        with session() as s:
+            assert s.get(Download, IDS[1]).status == "evicted"  # 92 % auto-finish freed the copy
+            assert not (MEDIA_DIR / svc.rel_path(IDS[1])).exists()
+        assert not c.post("/api/history", json={"video_id": IDS[3], "position_s": 4, "duration_s": 10}).json()["finished"]
+        with session() as s:
+            assert s.get(Download, IDS[3]).status == "done"
+        c.post("/api/feedback", json={"video_id": IDS[2], "category_id": cat_id, "rating": -1})
+        with session() as s:
+            assert s.get(Download, IDS[2]).status == "done"  # pinned save survives the dislike
+        assert c.post("/api/history/seen", json={"video_id": IDS[3]}).json()["ok"]
+        with session() as s:
+            assert s.get(Download, IDS[3]).status == "evicted"  # "Seen it" removed the copy
+            assert not (MEDIA_DIR / svc.rel_path(IDS[3])).exists()
+
+
 def test_eviction_order_and_make_room():
     with session() as s:
         c = _cat(s)
@@ -412,6 +509,44 @@ def test_hook_aborts_on_pause_and_on_delete(monkeypatch):
     assert dl.run_one(_queue(IDS[1]), {"max_gb": 1}) == "aborted"
     with session() as s:
         assert s.get(Download, IDS[1]).status == "evicted"
+    assert not (MEDIA_DIR / svc.rel_path(IDS[1])).exists()
+
+
+def test_run_one_aborts_when_video_becomes_rejected_or_watched(monkeypatch):
+    """A download in flight stops as soon as the video is rejected by Family/Judge or finished-watched;
+    the periodic sweep then evicts the row."""
+    monkeypatch.setattr(svc, "CONTROL_EVERY_S", 0)
+
+    def fake(vid, workdir, max_height, rate_limit, hook=None, **k):
+        with session() as s:
+            if vid == IDS[0]:
+                c = s.exec(select(Candidate).where(Candidate.video_id == vid)).first()
+                c.status, c.dismissed = "rejected", True  # family dislikes it mid-download
+                s.add(c)
+            else:
+                s.add(WatchHistory(profile_id=s.exec(select(Profile)).first().id, video_id=vid, finished=True))
+            s.commit()
+        return _fake_download()(vid, workdir, max_height, rate_limit, hook)
+
+    monkeypatch.setattr(svc.ytdl, "download", fake)
+    dl = svc.Downloader(sleep=lambda s: None)
+    # queue both properly (candidate accepted, download queued)
+    with session() as s:
+        c = _cat(s)
+        _cand(s, c, IDS[0])
+        _cand(s, c, IDS[1])
+        s.add(Download(video_id=IDS[0], status="queued"))
+        s.add(Download(video_id=IDS[1], status="queued"))
+        s.commit()
+    with session() as s:
+        d0, d1 = s.get(Download, IDS[0]), s.get(Download, IDS[1])
+        assert dl.run_one(d0, {"max_gb": 1}) == "aborted"  # rejected mid-download
+        assert dl.run_one(d1, {"max_gb": 1}) == "aborted"  # watched mid-download
+        assert s.get(Download, IDS[0]).status == s.get(Download, IDS[1]).status == "queued"
+    assert svc.Downloader(sleep=lambda s: None).iterate() == 30  # sweep evicted both, nothing else to do
+    with session() as s:
+        assert s.get(Download, IDS[0]).status == s.get(Download, IDS[1]).status == "evicted"
+        assert not (MEDIA_DIR / svc.rel_path(IDS[0])).exists()
     assert not (MEDIA_DIR / svc.rel_path(IDS[1])).exists()
 
 

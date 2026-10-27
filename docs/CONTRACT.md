@@ -27,6 +27,14 @@ Deploy: `root@10.0.10.73:/root/compose/bt`, port **6645**, public URL `https://b
   The judge and planner receive **RECENT REJECTIONS with reasons** (`data.rejections_for`: last 8 rejected candidates
   per category; the family's dislike reason beats the AI's verdict note), so future picks avoid the same failure
   ("this Ollama video was too basic → want advanced ones").
+- **Downloads follow verdicts**: a video rejected by Family (dislike) or Judge, or finished-watched by any profile
+  ("Seen it" / ≥92 % watched), must not be downloaded and its copy is removed. `sync_queue` never queues watched
+  videos; `drop_unwanted` (hooks on the feedback + history + seen endpoints) immediately evicts the queue row and
+  deletes the saved file — an in-flight download aborts within ~2 s (hook checks `_unwanted`). The downloader runs a
+  `purge_unwanted` sweep every iteration (even while paused/disabled/backoff) as the safety net. Pinned
+  ("Save offline") copies are never removed automatically, and a copy with a file request in the last 10 min is left
+  for a later sweep (someone may be streaming it). Evicted rows are not re-queued automatically (manual "Save offline"
+  queues them again; the video streams otherwise).
 - **Statistics page** (`/stats`, top-bar tab "Stats"): `GET /api/stats/page?days=N` (N ≤ 120, default 30) returns
   `overview` (videos known, candidate pipeline counts incl. `waiting_judge`/`in_queue`/`rejected_ai` vs
   `rejected_family`/`dismissed`, downloads by status + storage, feedback by rating, lessons, watched totals + seconds,
@@ -149,7 +157,8 @@ User request: download the videos the AI selects and play them locally.
 - Policy: **all accepted (non-dismissed) candidates** are auto-downloaded, highest score / newest first, round-robin across
   categories, until `cache.max_gb` (default 500). Manual "Save offline" on any video (`pinned`). Eviction when over cap: LRU among
   non-pinned, preferring videos finished by every profile that watched them, then dismissed/rejected ones, then oldest last_played.
-  Dismiss/dislike → eligible for eviction. Deleting a category doesn't delete files immediately; eviction handles it.
+  Dismiss/dislike → eligible for eviction; dislike-rejected and finished-watched videos are evicted at once (see "Downloads follow
+  verdicts" above), not only under cap pressure. Deleting a category doesn't delete files immediately; eviction handles it.
 - Format: single merged MP4, H.264 (avc1) + AAC, ≤ `cache.max_height` (default 1080), via yt-dlp
   `bv*[vcodec^=avc1][height<=H]+ba[acodec^=mp4a]/b[ext=mp4]` with ffmpeg merge, `--merge-output-format mp4`, faststart
   (`-movflags +faststart` postprocessor args). ffmpeg added to the image. PO token + cookies same as ytdl.py.

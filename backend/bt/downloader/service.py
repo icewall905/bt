@@ -82,13 +82,16 @@ def max_bytes(cfg: dict) -> int:
 
 def sync_queue(s: Session, cfg: dict) -> int:
     """Queue every accepted, non-dismissed candidate that has no Download row yet (auto == 'accepted').
-    Rows that were evicted or deleted by the user are not re-queued automatically."""
+    Rows that were evicted or deleted by the user are not re-queued automatically; videos finished-watched
+    by any profile are never queued."""
     if cfg.get("auto", "accepted") != "accepted":
         return 0
     have = select(Download.video_id)
+    seen = select(WatchHistory.video_id).where(WatchHistory.finished == True)  # noqa: E712
     ids = s.exec(select(Candidate.video_id).where(Candidate.status == "accepted",
                                                   Candidate.dismissed == False,  # noqa: E712
-                                                  col(Candidate.video_id).not_in(have)).distinct()).all()
+                                                  col(Candidate.video_id).not_in(have),
+                                                  col(Candidate.video_id).not_in(seen)).distinct()).all()
     for vid in ids:
         if VID_RE.match(vid):
             s.add(Download(video_id=vid, status="queued"))
@@ -179,6 +182,78 @@ def evict(s: Session, d: Download, reason: str) -> int:
     emit("download", f"🗑️ Evicted {title} ({size / 1e6:.0f} MB) — {reason}", "info", video_id=d.video_id,
          payload={"size_bytes": size, "reason": reason})
     return size
+
+
+ACTIVE_PLAY_S = 600  # a done copy with a file request this recent may be streaming right now
+
+
+def _playing_now(d: Download) -> bool:
+    last = _aware(d.last_played_at)
+    return bool(d.status == "done" and last and (now() - last).total_seconds() < ACTIVE_PLAY_S)
+
+
+def _unwanted(s: Session, vid: str, d: Optional[Download] = None) -> Optional[str]:
+    """Why the video's local copy should be dropped now, else None:
+    'finished watching' (any profile reached the end) or 'rejected by Family or Judge' (a rejected
+    candidate while no accepted, non-dismissed one is left). Pinned copies are never dropped
+    automatically, and a recently played copy is left alone while someone may still be streaming it."""
+    d = d or s.get(Download, vid)
+    if d is None or d.pinned or d.status == "evicted" or _playing_now(d):
+        return None
+    watched = s.exec(select(WatchHistory.finished).where(WatchHistory.video_id == vid,
+                                                         WatchHistory.finished == True)).first()  # noqa: E712
+    if watched is not None:
+        return "finished watching"
+    rejected = s.exec(select(Candidate.video_id).where(Candidate.video_id == vid,
+                                                       Candidate.status == "rejected")).first()  # noqa: E711
+    still_wanted = s.exec(select(Candidate.video_id).where(Candidate.video_id == vid,
+                                                           Candidate.status == "accepted",
+                                                           Candidate.dismissed == False)).first()  # noqa: E712
+    return "rejected by Family or Judge" if rejected is not None and still_wanted is None else None
+
+
+def drop_unwanted(s: Session, video_id: str) -> Optional[int]:
+    """Evict one video's download immediately when it is no longer wanted (family dislike, finished
+    watching). Returns the freed bytes, or None when the copy is pinned, in use or still wanted."""
+    d = s.get(Download, video_id)
+    reason = _unwanted(s, video_id, d)
+    return evict(s, d, reason) if reason else None
+
+
+def unwanted_reasons(s: Session) -> dict[str, str]:
+    """Bulk version of _unwanted for the periodic sweep: video_id -> reason."""
+    rows = s.exec(select(Download).where(Download.status != "evicted", Download.pinned == False)).all()  # noqa: E712
+    if not rows:
+        return {}
+    ids = [d.video_id for d in rows]
+    watched = set(s.exec(select(WatchHistory.video_id).where(col(WatchHistory.video_id).in_(ids),
+                                                             WatchHistory.finished == True)).all())  # noqa: E712
+    wanted = set(s.exec(select(Candidate.video_id).where(col(Candidate.video_id).in_(ids),
+                                                         Candidate.status == "accepted",
+                                                         Candidate.dismissed == False)).all())  # noqa: E712
+    rejected = set(s.exec(select(Candidate.video_id).where(col(Candidate.video_id).in_(ids),
+                                                           Candidate.status == "rejected")).all())  # noqa: E711
+    out: dict[str, str] = {}
+    for d in rows:
+        if _playing_now(d):
+            continue
+        if d.video_id in watched:
+            out[d.video_id] = "finished watching"
+        elif d.video_id in rejected and d.video_id not in wanted:
+            out[d.video_id] = "rejected by Family or Judge"
+    return out
+
+
+def purge_unwanted(s: Session) -> int:
+    """Evict every download that is no longer wanted (rejected by Family/Judge, finished watching).
+    Returns the freed bytes."""
+    reasons = unwanted_reasons(s)
+    freed = 0
+    for vid, reason in reasons.items():
+        d = s.get(Download, vid)
+        if d is not None and d.status != "evicted":
+            freed += evict(s, d, reason)
+    return freed
 
 
 def make_room(s: Session, cfg: dict, need: int, allow_wanted: bool) -> bool:
@@ -313,6 +388,9 @@ class Downloader:
             d = s.get(Download, video_id)
             if not d or d.status != "downloading":
                 return "removed"
+            w = _unwanted(s, video_id, d)  # rejected by Family/Judge or finished-watched meanwhile
+            if w:
+                return w
             prog = self._state.get("progress") if self._state.get("video_id") == video_id else None
             if prog is not None and abs((d.progress or 0) - prog) >= 0.01:
                 d.progress = prog  # persisted every CONTROL_EVERY_S at most
@@ -554,6 +632,8 @@ class Downloader:
     # ---- loop
     def iterate(self) -> float:
         """One scheduling step. Returns seconds to sleep before the next step."""
+        with session() as s:
+            purge_unwanted(s)  # rejected by Family/Judge or finished-watched: remove the copy even while paused/disabled
         b = self.blocker(check_cap=False)
         if b:
             self.set_state(b[0], detail=b[1])

@@ -12,6 +12,7 @@ from sqlalchemy.orm import load_only
 
 from ..config import COOKIES_PATH, DEFAULT_SETTINGS
 from ..db import emit, get_session, get_settings, save_setting, yt_request_counts
+from ..downloader.service import drop_unwanted
 from ..playlist import order_playlist
 from ..models import (AgentEvent, Candidate, Category, Channel, Download, Feedback, Lesson, Profile, ProfileChannel, ReencodeJob, ReencodeResult, Video,
                       WatchHistory, YtRequest, now)
@@ -487,6 +488,10 @@ def add_feedback(body: FeedbackIn, pid: int = Depends(profile_id), s: Session = 
         emit("reject", f"🚫 You rejected: {v.title if v else body.video_id}" + (f" — {reason}" if reason else ""),
              "info", profile_id=pid, category_id=body.category_id, video_id=body.video_id,
              payload={"candidate_id": rejected.id, "by": "family"})
+        # A rejected video must not be downloaded: pull it from the queue (this also aborts a running
+        # download within ~2 s) and delete its saved copy. Pinned saves stay; the downloader sweep
+        # removes copies that were being watched at this moment.
+        drop_unwanted(s, body.video_id)
     return f
 
 
@@ -568,12 +573,15 @@ def save_history(body: HistoryIn, pid: int = Depends(profile_id), s: Session = D
     h = s.exec(select(WatchHistory).where(WatchHistory.profile_id == pid,
                                           WatchHistory.video_id == body.video_id)).first()
     h = h or WatchHistory(profile_id=pid, video_id=body.video_id)
+    was_finished = h.finished
     h.position_s, h.duration_s = body.position_s, body.duration_s or h.duration_s
     h.category_id = body.category_id or h.category_id
     h.finished = body.finished or (h.duration_s > 0 and body.position_s >= h.duration_s * 0.92)
     h.updated_at = now()
     s.add(h)
     s.commit()
+    if h.finished and not was_finished:
+        drop_unwanted(s, body.video_id)  # watched to the end: the local copy is not needed anymore
     return {"ok": True, "finished": h.finished}
 
 
@@ -627,6 +635,7 @@ def mark_seen(body: SeenIn, pid: int = Depends(profile_id), s: Session = Depends
         c.dismissed = True
         s.add(c)
     s.commit()
+    drop_unwanted(s, body.video_id)  # "Seen it": the local copy is not needed anymore
     return {"ok": True, "dismissed": len(rows)}
 
 
