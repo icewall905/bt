@@ -35,6 +35,12 @@ Deploy: `root@10.0.10.73:/root/compose/bt`, port **6645**, public URL `https://b
   ("Save offline") copies are never removed automatically, and a copy with a file request in the last 10 min is left
   for a later sweep (someone may be streaming it). Evicted rows are not re-queued automatically (manual "Save offline"
   queues them again; the video streams otherwise).
+- **Hover previews**: hovering any video thumbnail (cards, candidate drawer, agent activity/verdicts,
+  status pill, stats explorer, storage list, up-next, home hero) silently autoplays a muted, looping
+  preview: the local copy when saved offline, otherwise DASH at ≤540p through the same proxy as the
+  player (progressive muxed streams no longer exist on YouTube, so `/api/video/{id}/fallback` is not
+  usable for previews). One preview at a time; sweeps under 350 ms start nothing; teardown on leave
+  aborts the stream. Shared by `use:preview` (`$lib/preview.ts`); touch-only devices are skipped.
 - **Statistics page** (`/stats`, top-bar tab "Stats"): `GET /api/stats/page?days=N` (N ≤ 120, default 30) returns
   `overview` (videos known, candidate pipeline counts incl. `waiting_judge`/`in_queue`/`rejected_ai` vs
   `rejected_family`/`dismissed`, downloads by status + storage, feedback by rating, lessons, watched totals + seconds,
