@@ -39,6 +39,10 @@ Workflow: `/home/hnyg/AGENTS.md` (implement → independent review → fix → r
 - Nightly copy of `data/` at `/mnt/backup/consolepve/compose/data/bt/data/` (03:00 cron, `compose-backup`).
 - `docker compose up -d --build` after rsync; `bt-api`, `bt-worker`, `bt-downloader`, `bt-pot` expected running;
   `curl localhost:6645/api/health` → `{"ok":true}`.
+- **GPU (optional)**: `bt-downloader` carries an NVIDIA device reservation (`capabilities: [gpu, video]`)
+  for NVENC re-encoding (Settings → Storage → "HW Transcoding"). Needs the nvidia container toolkit on the
+  host; on hosts without an NVIDIA GPU, remove the `environment:` + `deploy:` blocks on `bt-downloader` and
+  leave the toggle off — downloads are then kept exactly as yt-dlp saved them.
 
 ## Remaining / to do (physical only)
 1. **Projector test**: press remote button 6 → `bt-mode` opens Chromium kiosk at `http://localhost:6645`;

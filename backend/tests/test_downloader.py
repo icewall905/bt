@@ -1,5 +1,7 @@
 """Offline cache downloader: queue, eviction, reconcile, run_one, gating, API (no network unless BT_LIVE=1)."""
 import os
+import shutil
+import subprocess
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -11,6 +13,7 @@ from bt import ytdl
 from bt.config import MEDIA_DIR
 from bt.db import init_db, save_setting, session, set_agent_state, update_agent_control
 from bt.downloader import service as svc
+from bt.downloader import transcode
 from bt.models import Candidate, Category, Download, Profile, Video, WatchHistory, YtRequest, now
 
 IDS = [f"vid{i:08d}" for i in range(10)]  # 11 chars
@@ -199,6 +202,100 @@ def test_run_one_errors(monkeypatch):
         assert (b.status, b.attempts) == ("error", 1)
         assert (c.status, c.attempts) == ("queued", 0)
     assert dl.blocker()[0] == "backoff"
+
+
+# ---- HW transcoding (NVENC) ----
+
+def test_nvenc_cmd():
+    cmd = transcode.nvenc_cmd(Path("in.mp4"), Path("out.mp4"))
+    assert cmd[:2] == ["ffmpeg", "-hide_banner"]
+    assert cmd[cmd.index("-c:v") + 1] == "h264_nvenc" and cmd[-1] == "out.mp4"
+    assert cmd[cmd.index("-progress") + 1] == "pipe:1" and "+faststart" in cmd
+
+
+def _fake_reencode(status="ok", detail=""):
+    calls = []
+
+    def fake(src, dst, duration_s=0.0, on_progress=None, should_abort=None):
+        calls.append((Path(src), Path(dst), duration_s, should_abort))
+        if status == "ok":
+            dst.write_bytes(b"\7" * 400)
+        if on_progress and duration_s:
+            on_progress(0.5)
+        return status, detail
+    return calls, fake
+
+
+def test_run_one_hw_transcode_replaces_file(monkeypatch):
+    monkeypatch.setattr(svc.ytdl, "download", _fake_download(content=b"\0" * 1000))
+    calls, fake = _fake_reencode()
+    monkeypatch.setattr(svc.transcode, "reencode", fake)
+    dl = svc.Downloader(sleep=lambda s: None)
+    assert dl.run_one(_queue(IDS[0]), {"max_gb": 1, "hw_transcode": True}) == "done"
+    src, dst, duration_s, should_abort = calls[0]
+    assert dst.parent == svc.staging_dir(IDS[0]) and duration_s == 10 and should_abort is not None
+    with session() as s:
+        row = s.get(Download, IDS[0])
+        assert (row.status, row.size_bytes) == ("done", 400)
+        assert row.vcodec == "h264 (NVENC)"
+    assert (MEDIA_DIR / svc.rel_path(IDS[0])).read_bytes() == b"\7" * 400
+    assert not svc.staging_dir(IDS[0]).exists()
+    from bt.db import get_kv
+    assert get_kv("downloader_state")["state"] == "transcoding"
+
+
+def test_run_one_hw_transcode_unavailable_keeps_original_and_disarms(monkeypatch):
+    monkeypatch.setattr(svc.ytdl, "download", _fake_download(content=b"\0" * 1000))
+    calls, fake = _fake_reencode(status="unavailable", detail="no capable devices found")
+    monkeypatch.setattr(svc.transcode, "reencode", fake)
+    dl = svc.Downloader(sleep=lambda s: None)
+    assert dl.run_one(_queue(IDS[0]), {"max_gb": 1, "hw_transcode": True}) == "done"
+    assert dl.run_one(_queue(IDS[1]), {"max_gb": 1, "hw_transcode": True}) == "done"
+    assert len(calls) == 1  # the first NVENC-unavailable failure disarms further attempts
+    with session() as s:
+        a = s.get(Download, IDS[0])
+        assert (a.status, a.size_bytes, a.vcodec) == ("done", 1000, "avc1.4d401f")
+    assert (MEDIA_DIR / svc.rel_path(IDS[1])).read_bytes() == b"\0" * 1000
+
+
+def test_run_one_hw_transcode_aborted_keeps_original(monkeypatch):
+    monkeypatch.setattr(svc.ytdl, "download", _fake_download(content=b"\0" * 1000))
+    _, fake = _fake_reencode(status="aborted", detail="stopped")
+    monkeypatch.setattr(svc.transcode, "reencode", fake)
+    dl = svc.Downloader(sleep=lambda s: None)
+    assert dl.run_one(_queue(IDS[0]), {"max_gb": 1, "hw_transcode": True}) == "done"
+    assert (MEDIA_DIR / svc.rel_path(IDS[0])).read_bytes() == b"\0" * 1000
+    with session() as s:
+        row = s.get(Download, IDS[0])
+        assert (row.status, row.size_bytes, row.vcodec) == ("done", 1000, "avc1.4d401f")
+
+
+def test_run_one_hw_transcode_off_by_default(monkeypatch):
+    monkeypatch.setattr(svc.ytdl, "download", _fake_download())
+    calls, fake = _fake_reencode()
+    monkeypatch.setattr(svc.transcode, "reencode", fake)
+    dl = svc.Downloader(sleep=lambda s: None)
+    assert dl.run_one(_queue(IDS[0]), {"max_gb": 1}) == "done"
+    assert calls == []
+
+
+def test_reencode_plumbing_with_local_ffmpeg(monkeypatch, tmp_path):
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    src, dst = tmp_path / "s.mp4", tmp_path / "d.mp4"
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                    "-i", "testsrc=duration=2:size=160x120:rate=10", "-c:v", "libx264",
+                    "-preset", "ultrafast", str(src)], check=True)
+    monkeypatch.setattr(transcode, "nvenc_cmd",
+                        lambda s, d: ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+                                      "-i", str(s), "-c:v", "libx264", "-preset", "ultrafast",
+                                      "-progress", "pipe:1", "-nostats", str(d)])
+    seen = []
+    status, detail = transcode.reencode(src, dst, duration_s=2.0, on_progress=seen.append)
+    assert status == "ok" and detail == ""
+    assert dst.stat().st_size > 0 and seen and seen == sorted(seen)
+    status, _ = transcode.reencode(src, dst, duration_s=2.0, should_abort=lambda: "stop")
+    assert status == "aborted"
 
 
 def test_hook_aborts_on_pause_and_on_delete(monkeypatch):

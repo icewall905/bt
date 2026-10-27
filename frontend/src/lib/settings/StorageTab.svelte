@@ -83,7 +83,8 @@
 	];
 	const DL_LABEL: Record<string, string> = {
 		offline: 'Download service not running', idle: 'Everything wanted is saved', sleeping: 'Resting between downloads',
-		full: 'Storage full', paused: 'Paused with the AI', disabled: 'Downloads turned off', backoff: 'Waiting for YouTube'
+		full: 'Storage full', paused: 'Paused with the AI', disabled: 'Downloads turned off', backoff: 'Waiting for YouTube',
+		transcoding: 'Re-encoding on the GPU'
 	};
 	const STATUS: Record<string, string> = { queued: 'Waiting', downloading: 'Downloading', done: 'Saved', error: 'Failed', evicted: 'Removed' };
 </script>
@@ -117,6 +118,7 @@
 		<Select label="Download quality" bind:value={d.value.max_height} options={HEIGHTS} />
 		<Select label="Download speed limit" hint="Keeps downloads from hogging the internet connection." bind:value={d.value.rate_limit} options={RATES} />
 		<Stepper label="Pause between downloads" hint="A short random wait keeps the traffic pattern polite." bind:value={d.value.min_gap_s} min={0} max={3600} step={10} format={(v) => (v >= 60 ? `${Math.round(v / 60)} min` : `${v} s`)} />
+		<Toggle label="HW Transcoding" hint="Shrink new downloads about 40–50% by re-encoding them on the server's NVIDIA GPU (NVENC). Needs the GPU wired to the downloader; when it is missing, files are kept as downloaded." bind:checked={d.value.hw_transcode} />
 	</div>
 	<SaveBar dirty={d.dirty} busy={d.busy} onsave={() => d.save('Storage settings saved')} onreset={() => d.reset()} />
 </Section>

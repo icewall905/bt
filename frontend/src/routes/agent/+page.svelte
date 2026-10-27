@@ -85,7 +85,7 @@
 	const pct = (a: number, z: number) => (z > 0 ? Math.min(100, (a / z) * 100) : 0);
 	const dl = $derived(agent.downloader);
 	const DL_LABEL: Record<string, string> = {
-		offline: 'Not running', idle: 'Up to date', downloading: 'Downloading', sleeping: 'Resting between downloads',
+		offline: 'Not running', idle: 'Up to date', downloading: 'Downloading', transcoding: 'Re-encoding on the GPU', sleeping: 'Resting between downloads',
 		full: 'Storage full', paused: 'Paused with the AI', disabled: 'Turned off', backoff: 'Waiting for YouTube'
 	};
 </script>
@@ -160,9 +160,9 @@
 			<p class="muted small">Picked videos are saved on the server so they play instantly without YouTube.</p>
 			<div class="dls">
 				<strong>{DL_LABEL[dl.state] ?? dl.state}</strong>
-				{#if dl.detail && dl.state !== 'downloading'}<span class="small muted">{dl.detail}</span>{/if}
+				{#if dl.detail && dl.state !== 'downloading' && dl.state !== 'transcoding'}<span class="small muted">{dl.detail}</span>{/if}
 			</div>
-			{#if dl.state === 'downloading'}
+			{#if dl.state === 'downloading' || dl.state === 'transcoding'}
 				<div class="dlnow">
 					{#if dl.video_id}<img src={api.thumb(dl.video_id, 'mq')} alt="" />{/if}
 					<div class="grow">

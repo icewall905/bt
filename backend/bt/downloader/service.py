@@ -23,6 +23,7 @@ from ..config import MEDIA_DIR
 from ..db import emit, get_agent_control, get_agent_state, get_settings, save_setting, session, \
     yt_request_counts
 from ..models import Candidate, Category, Download, Video, WatchHistory, now
+from . import transcode
 
 log = logging.getLogger("bt.downloader")
 
@@ -253,6 +254,7 @@ class Downloader:
         self.blocked_until: Optional[datetime] = None
         self._state: dict = {}
         self._last_state_write = 0.0
+        self._nvenc_dead = False  # set after the first NVENC-unavailable failure; stops retrying
 
     # ---- state
     def set_state(self, state: str, force: bool = True, **kw) -> None:
@@ -323,6 +325,7 @@ class Downloader:
             v = s.get(Video, vid)
             title = v.title if v and v.title else vid
             est = (v.duration_s if v else 0) * EST_BYTES_PER_S
+            dur = (v.duration_s if v else 0) or 0.0
             if not make_room(s, cfg, est, allow_wanted=d.pinned):
                 self.set_state("full", detail="Storage cap reached (only wanted/pinned videos left)")
                 return "full"
@@ -389,6 +392,11 @@ class Downloader:
             if not src.is_file():
                 self._fail(vid, "downloaded file missing")
                 return "error"
+            gpu = ""
+            if cfg.get("hw_transcode") and not self._nvenc_dead:
+                gpu = self._gpu_transcode(vid, title, src, work, dur)
+                if gpu:
+                    res["vcodec"] = "h264 (NVENC)"
             dst = MEDIA_DIR / rel_path(vid)
             dst.parent.mkdir(parents=True, exist_ok=True)
             os.replace(src, dst)  # atomic within the same filesystem
@@ -414,9 +422,36 @@ class Downloader:
             self._fail(vid, f"{type(e).__name__}: {e}")
             emit("download", f"⚠️ Saving download failed: {title} ({str(e)[:160]})", "warn", video_id=vid)
             return "error"
-        emit("download", f"✅ Saved offline ({res['height']}p, {size / 1e6:.0f} MB): {title}", "success", video_id=vid,
+        emit("download", f"✅ Saved offline ({res['height']}p, {size / 1e6:.0f} MB{gpu}): {title}", "success", video_id=vid,
              payload={"size_bytes": size, "height": res["height"]})
         return "done"
+
+    def _gpu_transcode(self, vid: str, title: str, src: Path, work: Path, duration_s: float) -> str:
+        """NVENC re-encode of the staged download. -> message fragment for the success event,
+        "" when the original file is kept (aborted / failed / NVENC unavailable)."""
+        self.set_state("transcoding", video_id=vid, title=title, detail=title)
+        out = work / f"{vid}.nvenc.mp4"
+        before = src.stat().st_size
+        t0 = time.monotonic()
+        status, detail = transcode.reencode(
+            src, out, duration_s=duration_s,
+            on_progress=lambda f: self.set_state("transcoding", force=False, video_id=vid, title=title,
+                                                 progress=f, detail=title),
+            should_abort=lambda: self._abort_reason(vid))
+        if status == "ok":
+            os.replace(out, src)
+            after = src.stat().st_size
+            log.info("nvenc %s: %.0f -> %.0f MB in %.0fs", vid, before / 1e6, after / 1e6, time.monotonic() - t0)
+            return f" — GPU re-encoded from {before / 1e6:.0f} MB"
+        if status == "unavailable":
+            self._nvenc_dead = True
+            emit("download", f"⚠️ GPU transcoding unavailable ({detail[:120]}) — saving downloads as-is",
+                 "warn", video_id=vid)
+        elif status == "failed":
+            emit("download", f"⚠️ GPU transcode failed ({detail[:160]}) — kept the original",
+                 "warn", video_id=vid)
+        # aborted: stop/pause/removal during the re-encode — the download itself is fine
+        return ""
 
     def _fail(self, vid: str, err: str, permanent: bool = False, count: bool = True) -> None:
         with session() as s:

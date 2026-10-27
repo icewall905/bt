@@ -333,7 +333,7 @@ export interface Settings {
 	player: { max_height: number; prefer_codec: string; autoplay_next: boolean; default_speed: number; captions_lang: string };
 	sponsorblock: { enabled: boolean; categories: Record<string, SbAction>; min_segment_s: number };
 	extras: { dearrow: boolean; ryd: boolean; hide_shorts: boolean };
-	cache: { enabled: boolean; auto: 'accepted' | 'manual'; max_gb: number; max_height: number; rate_limit: number; min_gap_s: number };
+	cache: { enabled: boolean; auto: 'accepted' | 'manual'; max_gb: number; max_height: number; rate_limit: number; min_gap_s: number; hw_transcode: boolean };
 	cookies?: { present: boolean };
 }
 

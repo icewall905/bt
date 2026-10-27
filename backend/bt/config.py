@@ -77,5 +77,6 @@ DEFAULT_SETTINGS: dict = {
         "max_height": 1080,
         "rate_limit": 8_000_000,  # bytes/s
         "min_gap_s": 30,
+        "hw_transcode": False,  # re-encode new downloads with NVIDIA NVENC (Settings → Storage toggle)
     },
 }

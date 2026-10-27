@@ -25,7 +25,7 @@
 	});
 	const title = $derived((agent.state.title as string | undefined) ?? '');
 	const dl = $derived(agent.downloader);
-	const downloading = $derived(dl.state === 'downloading');
+	const downloading = $derived(dl.state === 'downloading' || dl.state === 'transcoding');
 </script>
 
 <div class="wrap">
