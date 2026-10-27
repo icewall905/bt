@@ -164,9 +164,9 @@
 				<p class="eyebrow"><span class="dot"></span>{greeting}</p>
 				{#if noCategories}
 					<h1>Tell the AI what you like to watch</h1>
-					<p class="muted lead">Create a category like "Science for kids" or "Woodworking". The curator searches YouTube slowly in the background, reads transcripts and comments, and only keeps videos that fit.</p>
+					<p class="muted lead">Create a playlist like "Science for kids" or "Woodworking". The curator searches YouTube slowly in the background, reads transcripts and comments, and only keeps videos that fit.</p>
 					<div class="hstack">
-						<a class="btn primary big" href="/settings?tab=categories&new=1" use:focusable={{ group: 'hero', autofocus: true }}>Create a category</a>
+						<a class="btn primary big" href="/settings?tab=categories&new=1" use:focusable={{ group: 'hero', autofocus: true }}>Create a playlist</a>
 						<a class="btn big" href="/search" use:focusable={{ group: 'hero' }}>Search instead</a>
 					</div>
 				{:else}
@@ -227,7 +227,7 @@
 				{#if row.items.length === 0}
 					<LookingPlaceholder categoryId={row.category_id} color={row.color} />
 					<a class="more" href="/category/{row.category_id}" style:--cat={row.color} use:focusable={{ group: `row-${row.category_id}`, id: `more-${row.category_id}` }}>
-						<span class="e">{row.emoji}</span><span>Open category</span>
+						<span class="e">{row.emoji}</span><span>Open playlist</span>
 					</a>
 				{:else}
 					{#each row.items as it}

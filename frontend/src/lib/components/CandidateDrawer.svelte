@@ -39,13 +39,13 @@
 	async function accept() {
 		if (!data || accepting) return;
 		if (!data.profile_id) {
-			toast.error('The original category no longer exists.');
+			toast.error('The original playlist no longer exists.');
 			return;
 		}
 		accepting = true;
 		try {
 			const result = await api.acceptCandidate(data.id, data.profile_id);
-			toast.success(result.learn_from_override ? 'Added. The AI will learn from your approval.' : 'Added to the category');
+			toast.success(result.learn_from_override ? 'Added. The AI will learn from your approval.' : 'Added to the playlist');
 			close();
 		} catch {
 			// The API client shows the error; keep the verdict open for retry.
@@ -56,7 +56,7 @@
 	async function dismiss() {
 		if (!data) return;
 		await api.dismissCandidate(data.id);
-		toast.success('Removed from the category');
+		toast.success('Removed from the playlist');
 		close();
 	}
 	async function play() {
@@ -150,7 +150,7 @@
 			<button class="btn primary" use:focusable={{ autofocus: true, onSelect: play }}>▶ Play</button>
 			<OfflineButton videoId={data.video.id} offline={!!v?.offline} size="normal" />
 			{#if data.status === 'accepted'}
-				<button class="btn" use:focusable={{ onSelect: dismiss }}>Remove from category</button>
+				<button class="btn" use:focusable={{ onSelect: dismiss }}>Remove from playlist</button>
 			{:else}
 				<button class="btn" disabled={accepting} use:focusable={{ onSelect: accept }}>{accepting ? 'Adding…' : 'Add anyway'}</button>
 			{/if}

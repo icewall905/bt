@@ -9,7 +9,7 @@
 	let editing = $state<Profile | null | undefined>(undefined);
 </script>
 
-<Section title="Profiles" intro="Family members. Each profile has its own categories, subscriptions, history and AI memory. Settings on this page are shared by everyone.">
+<Section title="Profiles" intro="Family members. Each profile has its own playlists, subscriptions, history and AI memory. Settings on this page are shared by everyone.">
 	{#snippet actions()}
 		<button class="btn primary" use:focusable={{ group: 'pf-top', onSelect: () => (editing = null) }}>＋ Add person</button>
 	{/snippet}

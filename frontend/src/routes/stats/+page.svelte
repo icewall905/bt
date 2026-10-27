@@ -144,7 +144,7 @@
 			<section class="panel stack">
 				<h2>Curator decisions</h2>
 				<StatsDonut title="Curator decisions" segments={decisionSegments} onSelect={(metric, label) => drill(metric, label)} />
-				<p class="small faint">All-time category entries. Dismissed entries are grouped separately from their earlier verdict.</p>
+				<p class="small faint">All-time playlist entries. Dismissed entries are grouped separately from their earlier verdict.</p>
 			</section>
 			<section class="panel stack">
 				<h2>Offline video quality</h2>
@@ -183,15 +183,15 @@
 		{/if}
 
 		<section class="panel">
-			<h2>Per category</h2>
+			<h2>Per playlist</h2>
 			{#if cats.length === 0}
-				<p class="muted">No categories yet. Create one in Settings and the AI will start filling it.</p>
+				<p class="muted">No playlists yet. Create one in Settings and the AI will start filling it.</p>
 			{:else}
 				<div class="twrap">
 					<table class="table">
 						<thead>
 							<tr>
-								<th>Category</th>
+								<th>Playlist</th>
 								<th>Ready</th>
 								<th>In review</th>
 								<th>Watched</th>

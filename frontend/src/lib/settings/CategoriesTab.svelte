@@ -57,7 +57,7 @@
 </script>
 
 {#if isNew || editing}
-	<Section title={editing ? `Edit ${editing.emoji} ${editing.name}` : 'New category'} intro="A category is a standing request to the AI curator. It searches slowly in the background, reads each video's transcript and top comments, and keeps only what fits your brief.">
+	<Section title={editing ? `Edit ${editing.emoji} ${editing.name}` : 'New playlist'} intro="A playlist is a standing request to the AI curator. It searches slowly in the background, reads each video's transcript and top comments, and keeps only what fits your brief.">
 		{#if isNew && !preset}
 			<div class="presets">
 				<span class="small faint">Start from an example</span>
@@ -73,14 +73,14 @@
 		{/key}
 	</Section>
 {:else}
-	<Section title="Categories" intro="Each category becomes a row on Home. Order here is the order on Home.">
+	<Section title="Playlists" intro="Each playlist becomes a row on Home. Order here is the order on Home.">
 		{#snippet actions()}
-			<button class="btn primary" use:focusable={{ group: 'cat-top', id: 'cat-new', onSelect: () => open('&new=1') }}>＋ New category</button>
+			<button class="btn primary" use:focusable={{ group: 'cat-top', id: 'cat-new', onSelect: () => open('&new=1') }}>＋ New playlist</button>
 		{/snippet}
 		{#if session.categories.length === 0}
 			<div class="empty">
 				<span class="big-emoji">🗂️</span>
-				<p>No categories yet. Create one to give the AI something to look for.</p>
+				<p>No playlists yet. Create one to give the AI something to look for.</p>
 			</div>
 		{/if}
 		<div class="list">

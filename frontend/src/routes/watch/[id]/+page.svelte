@@ -818,7 +818,7 @@
 						<button class="btn" use:focusable={{ group: 'i-fb', scroll: 'nearest', onSelect: () => quickFeedback(2, 'Loved') }}>❤️ Love</button>
 						<button class="btn" use:focusable={{ group: 'i-fb', scroll: 'nearest', onSelect: () => feedback(-1) }}>👎 Not for us</button>
 						<button class="btn" use:focusable={{ group: 'i-fb', scroll: 'nearest', onSelect: () => feedback() }}>📝 Feedback</button>
-						<button class="btn" use:focusable={{ group: 'i-fb', scroll: 'nearest', onSelect: () => dialogs.openAddTo(id, title) }}>＋ Add to category</button>
+						<button class="btn" use:focusable={{ group: 'i-fb', scroll: 'nearest', onSelect: () => dialogs.openAddTo(id, title) }}>＋ Add to playlist</button>
 						{#key detail.id}
 							<OfflineButton videoId={id} status={detail.download?.status ?? null} progress={detail.download?.progress ?? 0} group="i-fb" size="normal" />
 						{/key}
@@ -834,7 +834,7 @@
 							<div class="ai-card" style:--cat={c?.color ?? 'var(--ai)'}>
 								<div class="hstack small">
 									<strong>
-										{#if c}<a class="aicat" href="/category/{c.id}" use:focusable={{ group: 'i-ai', id: `ai-cat-${ic.category_id}` }}>{c.emoji} {c.name}</a>{:else}Category{/if}
+										{#if c}<a class="aicat" href="/category/{c.id}" use:focusable={{ group: 'i-ai', id: `ai-cat-${ic.category_id}` }}>{c.emoji} {c.name}</a>{:else}Playlist{/if}
 									</strong>
 									{#if ic.score != null}<span class="score">✦ {ic.score}</span>{/if}
 								</div>

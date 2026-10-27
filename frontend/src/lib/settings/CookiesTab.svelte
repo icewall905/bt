@@ -202,13 +202,13 @@
 			</button>
 		</div>
 		{#if destination === 'existing' && !categories.length}
-			<p class="small muted">Create a category first (Settings → Categories).</p>
+			<p class="small muted">Create a playlist first (Settings → Playlists).</p>
 		{/if}
 		{#if feedResult}
 			<div class="result panel ok">
 				<p><strong>Added {feedResult.added} of {feedResult.found} videos to {feedResult.category}.</strong> They are ready to watch; the curator will judge only future replacements.</p>
                 {#if feedResult.created}
-                    <p class="small muted">Your playlist refills to {feedResult.target_queue} videos as picks are seen. Edit the prompt in Settings → Categories.</p>
+                    <p class="small muted">Your playlist refills to {feedResult.target_queue} videos as picks are seen. Edit the prompt in Settings → Playlists.</p>
                     <p class="small">{feedResult.brief}</p>
                 {/if}
 				{#if feedResult.skipped}

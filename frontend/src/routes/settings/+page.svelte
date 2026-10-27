@@ -15,7 +15,7 @@
 	import StorageTab from '$lib/settings/StorageTab.svelte';
 
 	const TABS = [
-		{ key: 'categories', label: 'Categories', icon: '🗂️', hint: 'What the AI looks for' },
+		{ key: 'categories', label: 'Playlists', icon: '🗂️', hint: 'What the AI looks for' },
 		{ key: 'memory', label: 'AI memory', icon: '🧠', hint: 'Rules learned from feedback' },
 		{ key: 'ai', label: 'AI and limits', icon: '✦', hint: 'Model, curator, pace' },
 		{ key: 'player', label: 'Player', icon: '▶', hint: 'Quality, speed, captions' },
@@ -27,7 +27,7 @@
 		{ key: 'keys', label: 'Remote test', icon: '🎮', hint: 'See what buttons send' }
 	] as const;
 	type TabKey = (typeof TABS)[number]['key'];
-	const tab = $derived((TABS.find((t) => t.key === page.url.searchParams.get('tab'))?.key ?? 'categories') as TabKey);
+	const tab = $derived((TABS.find((t) => t.key === (page.url.searchParams.get('tab') === 'playlists' ? 'categories' : page.url.searchParams.get('tab')))?.key ?? 'categories') as TabKey);
 
 	function go(k: TabKey) {
 		if (k !== tab) goto(`/settings?tab=${k}`, { replaceState: true, keepFocus: true, noScroll: true });

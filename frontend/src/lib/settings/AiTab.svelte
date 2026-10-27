@@ -187,7 +187,7 @@
 
 <div class="gap"></div>
 
-<Section title="Curator" intro="The background worker that searches, reads and judges videos for every profile's categories.">
+<Section title="Curator" intro="The background worker that searches, reads and judges videos for every profile's playlists.">
 	<div class="status small muted">Right now: <strong>{STATE_LABEL[agent.effective] ?? agent.effective}</strong>{agent.state.detail ? `, ${agent.state.detail}` : ''}</div>
 	<Toggle label="Curator enabled" hint="Off stops all background searching. Search and playback keep working. For a short break use Pause AI in the top bar instead." bind:checked={ag.value.enabled} />
 	<SaveBar dirty={ag.dirty} busy={ag.busy} onsave={() => ag.save(ag.value.enabled ? 'Curator enabled' : 'Curator disabled')} onreset={() => ag.reset()} />

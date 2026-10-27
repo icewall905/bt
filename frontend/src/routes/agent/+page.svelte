@@ -180,11 +180,11 @@
 		</section>
 
 		<section class="panel stack queues">
-			<h2>Category queues</h2>
+			<h2>Playlist queues</h2>
 			{#if queues === null}
 				<div class="skeleton" style="height:6rem"></div>
 			{:else if queues.length === 0}
-				<p class="muted">No categories yet. Create one in Settings.</p>
+				<p class="muted">No playlists yet. Create one in Settings.</p>
 			{:else}
 				{#each queues as q (q.category_id)}
 					<div class="q" style:--cat={q.color} class:off={!q.enabled}>

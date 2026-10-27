@@ -4,6 +4,10 @@ Read first: `docs/PLAN.md` (design), `docs/CONTRACT.md` (interfaces, ticket owne
 Workflow: `/home/hnyg/AGENTS.md` (implement → independent review → fix → re-review). Never add AI attribution trailers to commits.
 
 ## 2026-10-27 updates
+- User-facing rename: categories are now called **playlists** everywhere visible (Settings, Home, search,
+  player, agent, Stats). `/settings?tab=playlists` opens the same section; `tab=categories` links still work.
+  Routes, API paths, storage and tests' internal ids are unchanged. Backend 158 passed / 4 skipped,
+  svelte-check clean, production build OK, Playwright 43/43.
 - Storage has a persistent bulk GPU re-encoding queue (`ReencodeJob`). Saved copies stay playable; the
   original is atomically replaced only by a smaller successful output. New downloads have the same size
   safeguard. The HW Transcoding setting controls new downloads independently of bulk jobs.

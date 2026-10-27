@@ -12,12 +12,12 @@
 	async function add(cid: number) {
 		const c = session.categoryById(cid);
 		await api.addCandidate(t.videoId, cid);
-		toast.success(`Added to ${c?.emoji ?? ''} ${c?.name ?? 'category'}`);
+		toast.success(`Added to ${c?.emoji ?? ''} ${c?.name ?? 'playlist'}`);
 		close();
 	}
 </script>
 
-<Modal title="Add to category" subtitle={t.title} size="sm" onClose={close}>
+<Modal title="Add to playlist" subtitle={t.title} size="sm" onClose={close}>
 	{#if session.categories.length}
 		<div class="list">
 			{#each session.categories as c, i (c.id)}
@@ -28,7 +28,7 @@
 			{/each}
 		</div>
 	{:else}
-		<p class="muted">You have no categories yet. Create one under Settings, Categories.</p>
+		<p class="muted">You have no playlists yet. Create one under Settings, Playlists.</p>
 	{/if}
 </Modal>
 

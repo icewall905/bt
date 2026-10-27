@@ -47,7 +47,7 @@
 	}
 </script>
 
-<Modal title={profile ? `Edit ${profile.name}` : 'New profile'} subtitle="Each person gets their own categories, history and AI memory." size="md" {onClose}>
+<Modal title={profile ? `Edit ${profile.name}` : 'New profile'} subtitle="Each person gets their own playlists, history and AI memory." size="md" {onClose}>
 	<div class="stack">
 		<div class="preview">
 			<Avatar {emoji} {color} size="4.5rem" />

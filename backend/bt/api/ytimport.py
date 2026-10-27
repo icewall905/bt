@@ -132,7 +132,7 @@ def _import_feed(body: FeedImportBody, pid: int, s: Session, category_values: di
     else:
         cat = s.get(Category, body.category_id)
         if not cat or cat.profile_id != pid:
-            raise HTTPException(404, "no such category for this profile")
+            raise HTTPException(404, "no such playlist for this profile")
     if body.source in SOURCES:
         url, source = SOURCES[body.source], f"import:{body.source}"
     elif body.source == "playlist":

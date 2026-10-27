@@ -30,6 +30,6 @@
 	<Select label="Preferred video format" bind:value={d.value.prefer_codec} options={CODECS} />
 	<Select label="Default speed" bind:value={d.value.default_speed} options={SPEEDS} />
 	<Select label="Captions" hint="Turn captions on automatically in this language when available." bind:value={d.value.captions_lang} options={LANGS} />
-	<Toggle label="Autoplay next" hint="When a video ends, play the next pick from the same category after a 10 second countdown." bind:checked={d.value.autoplay_next} />
+	<Toggle label="Autoplay next" hint="When a video ends, play the next pick from the same playlist after a 10 second countdown." bind:checked={d.value.autoplay_next} />
 	<SaveBar dirty={d.dirty} busy={d.busy} onsave={() => d.save('Player settings saved')} onreset={() => d.reset()} />
 </Section>

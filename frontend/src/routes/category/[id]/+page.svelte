@@ -56,7 +56,7 @@
 
 	async function findMore() {
 		await api.agentRun(id);
-		toast.success(agent.control.paused ? 'Queued. Resume the AI to start searching.' : `The AI will search for ${cat?.name ?? 'this category'} next.`);
+		toast.success(agent.control.paused ? 'Queued. Resume the AI to start searching.' : `The AI will search for ${cat?.name ?? 'this playlist'} next.`);
 	}
 
 	async function markSeen(c: Candidate) {
@@ -106,11 +106,11 @@
 	};
 </script>
 
-<svelte:head><title>{cat ? `${cat.name} · BetterTube` : 'Category'}</title></svelte:head>
+<svelte:head><title>{cat ? `${cat.name} · BetterTube` : 'Playlist'}</title></svelte:head>
 
 <div class="page" style:--cat={cat?.color ?? 'var(--ai)'}>
 	{#if notFound}
-		<div class="empty"><span class="big-emoji">🫥</span><p>This category does not exist for the current profile.</p><a class="btn" href="/" use:focusable={{ autofocus: true }}>Go home</a></div>
+		<div class="empty"><span class="big-emoji">🫥</span><p>This playlist does not exist for the current profile.</p><a class="btn" href="/" use:focusable={{ autofocus: true }}>Go home</a></div>
 	{:else}
 		<header class="head">
 			<div class="emo">{cat?.emoji ?? '✨'}</div>
@@ -127,7 +127,7 @@
 			</div>
 			<div class="acts">
 				<button class="btn primary" use:focusable={{ group: 'cat-acts', id: 'find-more', onSelect: findMore }}>✦ Find more now</button>
-				<a class="btn" href="/settings?tab=categories&edit={id}" use:focusable={{ group: 'cat-acts', id: 'edit-cat' }}>Edit category</a>
+				<a class="btn" href="/settings?tab=categories&edit={id}" use:focusable={{ group: 'cat-acts', id: 'edit-cat' }}>Edit playlist</a>
 			</div>
 		</header>
 

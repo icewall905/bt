@@ -22,10 +22,10 @@
 	}
 	onMount(load);
 
-	const catOptions = $derived([{ value: 0, label: 'All my categories' }, ...session.categories.map((c) => ({ value: c.id, label: `${c.emoji} ${c.name}` }))]);
+	const catOptions = $derived([{ value: 0, label: 'All my playlists' }, ...session.categories.map((c) => ({ value: c.id, label: `${c.emoji} ${c.name}` }))]);
 	const catLabel = (id: number | null) => {
 		const c = session.categoryById(id);
-		return c ? `${c.emoji} ${c.name}` : 'All categories';
+		return c ? `${c.emoji} ${c.name}` : 'All playlists';
 	};
 
 	async function add() {

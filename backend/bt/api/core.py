@@ -66,7 +66,7 @@ def candidate_out(c: Candidate, v: Optional[Video], offline: Optional[bool] = No
 def _own_category(s: Session, pid: int, cid: int) -> Category:
     c = s.get(Category, cid)
     if not c or c.profile_id != pid:
-        raise HTTPException(404, "category not found")
+        raise HTTPException(404, "playlist not found")
     return c
 
 

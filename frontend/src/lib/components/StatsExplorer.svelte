@@ -38,7 +38,7 @@
 <Modal size="lg" {title} subtitle="Across all profiles · one row per counted record" {onClose}>
 	<div class="stack">
 		{#if data}
-			<p class="small muted" aria-live="polite">Showing {data.items.length.toLocaleString()} of {data.total.toLocaleString()}{filter.day ? ` · ${filter.day}` : ''}. A video can appear in more than one category, profile, or attempt.</p>
+			<p class="small muted" aria-live="polite">Showing {data.items.length.toLocaleString()} of {data.total.toLocaleString()}{filter.day ? ` · ${filter.day}` : ''}. A video can appear in more than one playlist, profile, or attempt.</p>
 			{#if !data.items.length}<p class="muted">No records here yet.</p>{/if}
 			<ul class="results">
 				{#each data.items as item (item.key)}

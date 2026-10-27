@@ -41,7 +41,7 @@ test('keyboard-only smoke', async ({ page, request }) => {
 	await expect(page.locator('.topbar')).toBeVisible();
 	await page.waitForTimeout(500);
 	// Initial focus lands in the hero.
-	await expectFocus(page, /Create a category|Watch the AI work|Play/);
+	await expectFocus(page, /Create a playlist|Watch the AI work|Play/);
 	await page.screenshot({ path: 'screenshots/home-1920.png' });
 
 	// --- profile: open the switcher (top right), add a person.
@@ -71,9 +71,9 @@ test('keyboard-only smoke', async ({ page, request }) => {
 	await page.keyboard.press('Enter');
 	await expect(page).toHaveURL(/\/settings/);
 	await page.waitForTimeout(300);
-	await moveUntil(page, 'ArrowRight', /New category/);
+	await moveUntil(page, 'ArrowRight', /New playlist/);
 	await page.keyboard.press('Enter');
-	await expect(page.getByRole('heading', { name: 'New category' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'New playlist' })).toBeVisible();
 	await page.waitForTimeout(300);
 	await moveUntil(page, 'ArrowDown', /^Name/);
 	await page.keyboard.press('Enter');
@@ -84,15 +84,15 @@ test('keyboard-only smoke', async ({ page, request }) => {
 	await oskType(page, 'fun rockets');
 	await page.keyboard.press('Escape');
 	await page.screenshot({ path: 'screenshots/settings-category-form-1920.png', fullPage: false });
-	await moveUntil(page, 'ArrowDown', /Cancel|Create category/, 60);
-	await moveUntil(page, 'ArrowRight', /Create category/);
+	await moveUntil(page, 'ArrowDown', /Cancel|Create playlist/, 60);
+	await moveUntil(page, 'ArrowRight', /Create playlist/);
 	await page.keyboard.press('Enter');
 	await expect(page.getByText(/Created space kids/)).toBeVisible();
 	await expect(page.getByText('space kids').first()).toBeVisible();
 	await page.screenshot({ path: 'screenshots/settings-categories-1920.png' });
 
 	// --- Agent page, toggle pause.
-	await moveUntil(page, 'ArrowUp', /Settings$|Categories/, 10);
+	await moveUntil(page, 'ArrowUp', /Settings$|Playlists/, 10);
 	await moveUntil(page, 'ArrowUp', /^Settings$|Home|Search|Subscriptions|Agent/, 10);
 	await moveUntil(page, 'ArrowLeft', /^Home$/);
 	await moveUntil(page, 'ArrowRight', /^Agent$/);

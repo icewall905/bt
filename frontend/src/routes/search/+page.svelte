@@ -97,7 +97,7 @@
 			<div class="empty hello">
 				<span class="big-emoji">🔎</span>
 				<h2>Find anything</h2>
-				<p>Type with the keyboard on the left, then press Search. Add good finds to a category so the AI learns what you like.</p>
+				<p>Type with the keyboard on the left, then press Search. Add good finds to a playlist so the AI learns what you like.</p>
 			</div>
 		{:else if results.length === 0}
 			<div class="empty"><span class="big-emoji">🫙</span><p>No results for "{q}".</p></div>
@@ -106,7 +106,7 @@
 				{#each results as v, i (v.id)}
 					<VideoCard video={v} size="grid" group="results" autofocus={i === 0}>
 						{#snippet actions()}
-							<button class="btn add" use:focusable={{ group: `res-acts-${v.id}`, onSelect: () => dialogs.openAddTo(v.id, v.title) }}>＋ Add to category…</button>
+							<button class="btn add" use:focusable={{ group: `res-acts-${v.id}`, onSelect: () => dialogs.openAddTo(v.id, v.title) }}>＋ Add to playlist…</button>
 							<OfflineButton videoId={v.id} offline={!!v.offline} group="res-acts-{v.id}" />
 						{/snippet}
 					</VideoCard>

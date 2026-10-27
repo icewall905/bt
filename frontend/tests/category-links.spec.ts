@@ -94,8 +94,13 @@ with session() as s:
 `], { cwd: BACKEND, env: { ...process.env, BT_DATA_DIR: DATA! } });
 
 	await freshPage(page, '/settings?tab=categories');
+	await expect(page.getByRole('heading', { name: 'Playlists', exact: true })).toBeVisible();
 	await expect(page.locator('.item', { hasText: 'Age display test' })).toContainText('created 1 mo ago');
+	await freshPage(page, '/settings?tab=playlists&new=1');
+	await expect(page.getByRole('heading', { name: 'New playlist', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Create playlist', exact: true })).toBeVisible();
 
 	await freshPage(page, '/category/' + cat.id);
 	await expect(page.locator('.head')).toContainText('Created 1 mo ago');
+	await expect(page.getByRole('link', { name: 'Edit playlist', exact: true })).toBeVisible();
 });

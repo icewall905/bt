@@ -48,7 +48,7 @@
 	}
 
 	async function save() {
-		if (!f.name.trim()) return toast.warn('Give the category a name.');
+		if (!f.name.trim()) return toast.warn('Give the playlist a name.');
 		if (!f.brief.trim() && (category || !playlistUrl.trim())) return toast.warn('Describe what you want in the brief. The AI uses it for every decision.');
 		busy = true;
 		const body = { ...$state.snapshot(f), name: f.name.trim(), min_duration_s: minMin * 60, max_duration_s: Math.max(minMin, maxMin) * 60 };
@@ -118,7 +118,7 @@ Simple, fun science for kids 5–9: Mark Rober, cat videos, experiments, space, 
 
 	<div class="two">
 		<Toggle label="Kid-safe" hint="Reject anything the AI considers unsuitable for children, whatever the score." bind:checked={f.kid_safe} />
-		<Toggle label="Enabled" hint="Disabled categories are hidden from Home and the AI ignores them." bind:checked={f.enabled} />
+		<Toggle label="Enabled" hint="Disabled playlists are hidden from Home and the AI ignores them." bind:checked={f.enabled} />
 	</div>
 
 	<div class="field"><span class="label">Emoji</span><EmojiPicker bind:value={f.emoji} group="cat-emoji" /></div>
@@ -126,11 +126,11 @@ Simple, fun science for kids 5–9: Mark Rober, cat videos, experiments, space, 
 
 	<div class="actions">
 		{#if category}
-			<button class="btn danger" use:focusable={{ group: 'cat-form-acts', onSelect: remove }}>{confirmDel ? 'Press again: deletes all its picks' : 'Delete category'}</button>
+			<button class="btn danger" use:focusable={{ group: 'cat-form-acts', onSelect: remove }}>{confirmDel ? 'Press again: deletes all its picks' : 'Delete playlist'}</button>
 		{/if}
 		<span class="spacer"></span>
 		<button class="btn" use:focusable={{ group: 'cat-form-acts', onSelect: () => onDone() }}>Cancel</button>
-		<button class="btn primary big" disabled={busy} use:focusable={{ group: 'cat-form-acts', id: 'cat-save', onSelect: save }}>{busy ? (playlistUrl.trim() && !category ? 'Importing & generating prompt…' : 'Saving…') : category ? 'Save category' : 'Create category'}</button>
+		<button class="btn primary big" disabled={busy} use:focusable={{ group: 'cat-form-acts', id: 'cat-save', onSelect: save }}>{busy ? (playlistUrl.trim() && !category ? 'Importing & generating prompt…' : 'Saving…') : category ? 'Save playlist' : 'Create playlist'}</button>
 	</div>
 </div>
 

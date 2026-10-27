@@ -26,7 +26,7 @@ def explore(s: Session, metric: str, category_id: int | None = None, day: date |
     result_metrics = {"encode_saved", "encode_not_smaller", "encode_failed"}
     category = s.get(Category, category_id) if category_id is not None else None
     if category_id is not None and not category:
-        raise HTTPException(404, "category not found")
+        raise HTTPException(404, "playlist not found")
 
     if metric == "offline_channels":
         if category_id is not None or day is not None or height is not None:

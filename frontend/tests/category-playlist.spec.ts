@@ -19,7 +19,7 @@ test('new category can start from a playlist without a written brief', async ({ 
     await page.getByLabel('Name', { exact: true }).fill('Playlist science');
     await page.getByLabel('Initial playlist URL (optional)').fill('https://www.youtube.com/playlist?list=PLscience');
     await expect(page.getByText('Optional extra preferences to add to the generated prompt.')).toBeVisible();
-    await page.getByRole('button', { name: 'Create category', exact: true }).click();
+    await page.getByRole('button', { name: 'Create playlist', exact: true }).click();
     await expect.poll(() => submitted).toBe(true);
     await expect(page).toHaveURL(/tab=categories$/);
 });
