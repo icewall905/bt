@@ -36,14 +36,11 @@
 		use:focusable={{ group: 'topbar', id: 'status-pill', scroll: 'none', onSelect: () => (open = !open) }}
 	>
 		<span class="glyph"><AgentGlyph state={st} /></span>
-		<span class="txt">
-			<span class="lbl">{label}</span>
-			{#if extra}<span class="extra">{extra}</span>{/if}
-		</span>
 		{#if downloading}<span class="dl" title="Saving offline: {dl.title ?? ''}"><ProgressRing value={dl.progress ?? 0} label="Saving offline {Math.round((dl.progress ?? 0) * 100)}%" /></span>{/if}
 	</button>
 	<div class="tip glass" role="tooltip">
 		<strong>{label}</strong>
+		{#if extra && extra !== agent.state.detail}<span class="muted">{extra}</span>{/if}
 		{#if agent.state.detail}<span>{agent.state.detail}</span>{/if}
 		{#if title}<span class="muted">🎬 {title}</span>{/if}
 		{#if downloading}<span class="muted">⤓ Saving offline {Math.round((dl.progress ?? 0) * 100)}%: {dl.title}</span>{/if}
@@ -87,10 +84,10 @@
 		--focus-scale: 1.05;
 		display: flex;
 		align-items: center;
-		gap: 0.6rem;
-		max-width: clamp(10rem, 22vw, 30rem);
+		gap: 0.35rem;
 		height: 2.6rem;
-		padding: 0 1rem 0 0.55rem;
+		min-width: 2.6rem;
+		padding: 0 0.3rem;
 		border-radius: var(--r-pill);
 		border: 1px solid var(--line-strong);
 		background: rgba(20, 16, 46, 0.7);
@@ -132,24 +129,6 @@
 	}
 	.idle {
 		--tone: var(--ai);
-	}
-	.txt {
-		display: flex;
-		gap: 0.5rem;
-		min-width: 0;
-		align-items: baseline;
-		white-space: nowrap;
-	}
-	.lbl {
-		font-weight: 650;
-		font-size: 0.9rem;
-	}
-	.extra {
-		font-size: 0.82rem;
-		color: var(--muted);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		font-variant-numeric: tabular-nums;
 	}
 	.dl {
 		display: grid;
@@ -224,22 +203,6 @@
 		}
 		100% {
 			box-shadow: 0 0 0 0.6rem transparent;
-		}
-	}
-	@media (max-width: 720px) {
-		.extra {
-			display: none;
-		}
-		.pill {
-			padding-right: 0.8rem;
-		}
-	}
-	@media (max-width: 480px) {
-		.lbl {
-			display: none;
-		}
-		.pill {
-			padding: 0 0.35rem;
 		}
 	}
 </style>
