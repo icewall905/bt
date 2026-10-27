@@ -34,6 +34,9 @@ Workflow: `/home/hnyg/AGENTS.md` (implement → independent review → fix → r
 
 ## Deploy state (root@10.0.10.73:/root/compose/bt)
 - `.env` has `BT_MEDIA_HOST_DIR=/mnt/local/localstorage/bt` (dir exists, writable, NFS from 10.0.2.85, ~2.7 TB free).
+- Sync code with excludes — **never** sync `data/` or `.env` (it overwrites the live SQLite DB and `.secret`):
+  `rsync -az --exclude .git --exclude /data --exclude backend/data --exclude .env --exclude node_modules --exclude frontend/build --exclude frontend/.svelte-kit --exclude __pycache__ --exclude .venv --exclude test-results ./ root@10.0.10.73:/root/compose/bt/`
+- Nightly copy of `data/` at `/mnt/backup/consolepve/compose/data/bt/data/` (03:00 cron, `compose-backup`).
 - `docker compose up -d --build` after rsync; `bt-api`, `bt-worker`, `bt-downloader`, `bt-pot` expected running;
   `curl localhost:6645/api/health` → `{"ok":true}`.
 
