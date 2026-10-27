@@ -10,6 +10,7 @@
 	import { fmtDuration, fmtCount, timeAgo, SB_COLORS, SB_LABELS, clamp, isVideo } from '$lib/util';
 	import { loadShaka } from '$lib/player/shaka';
 	import { prepareSegments, type Segment } from '$lib/player/sponsorblock';
+	import { warmVideo } from '$lib/prefetch';
 	import type { Candidate, CaptionTrack, VideoDetail } from '$lib/types';
 	import Icon from '$lib/components/Icon.svelte';
 	import OfflineButton from '$lib/components/OfflineButton.svelte';
@@ -104,7 +105,11 @@
 		await tick();
 		if (!video || seq !== loadSeq) return;
 
-		let start = 0;
+		// Local asset: have Shaka ready before anything else can block.
+		loadShaka().catch(() => {});
+
+		speed = session.settings?.player.default_speed ?? 1;
+		// Detail (title, AI reasons, download state) is UI data; playback never waits on it.
 		const detailP = api.video(vid).then(
 			(d) => (detail = d),
 			(e) => {
@@ -112,23 +117,20 @@
 				return null;
 			}
 		);
-		const d = await Promise.race([detailP, new Promise((r) => setTimeout(r, 6000))]);
+
+		// Resume position: small history call instead of the full detail.
+		let start = 0;
+		const h = await api.historyFor(vid).catch(() => null);
 		if (seq !== loadSeq) return;
-		if (d && (d as VideoDetail).history && !(d as VideoDetail).history!.finished) start = (d as VideoDetail).history!.position_s ?? 0;
-		else if (!d) {
-			const h = await api.historyFor(vid).catch(() => null);
-			if (h && !h.finished) start = h.position_s ?? 0;
-		}
+		if (h && !h.finished) start = h.position_s ?? 0;
 		if (start < 5) start = 0;
 
-		speed = session.settings?.player.default_speed ?? 1;
-		// A finished local copy plays straight from disk (Ticket D); probe for it when the detail call failed.
-		const dl = (d as VideoDetail | null)?.download ?? null;
-		let offlineOk = false;
-		if (dl?.status === 'done' || !d) offlineOk = await playOffline(vid, start, seq, dl?.status === 'done');
+		// A saved copy plays straight from disk; the local probe beats any detail round trip.
+		const offlineOk = await playOffline(vid, start, seq, false);
 		if (seq !== loadSeq) return;
 		if (!offlineOk && !(await stream(vid, start, seq))) return;
 		if (seq !== loadSeq) return;
+		loadError = ''; // it plays: never show the error card over it
 		video.playbackRate = speed;
 		loading = false;
 		if (slowTimer) clearTimeout(slowTimer);
@@ -446,7 +448,11 @@
 		controls = true;
 		menu = null;
 		info = false;
-		if (session.settings?.player.autoplay_next && upNext.length) countdown = 10;
+		if (session.settings?.player.autoplay_next && upNext.length) {
+			countdown = 10;
+			// Autoplay is ~10s away: warm its streams now so it starts without "Preparing video".
+			warmVideo(upNext[0].video.id, { manifest: true, force: true });
+		}
 	}
 
 	let cdTimer: ReturnType<typeof setInterval> | null = null;

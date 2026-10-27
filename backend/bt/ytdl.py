@@ -5,6 +5,8 @@ Every outbound YouTube request is logged via `db.log_yt_request`.
 """
 from __future__ import annotations
 
+import base64
+import gzip
 import json
 import logging
 import re
@@ -18,7 +20,7 @@ from typing import Any
 import yt_dlp
 
 from .config import COOKIES_PATH, POT_URL
-from .db import get_settings, log_yt_request
+from .db import drop_kv, drop_kv_prefix, get_kv, get_settings, log_yt_request, save_setting
 from .models import Video, now
 
 log = logging.getLogger("bt.ytdl")
@@ -352,6 +354,38 @@ _id_locks: dict[str, threading.Lock] = {}
 FAIL_TTL_S = 60
 BLOCKED_TTL_S = 600
 
+# Shared info cache: the in-memory `_cache` lives per process, but the worker (enrich), the API
+# (play) and the downloader all extract the same videos. Each extraction is stored in the shared
+# KV store so the next process plays it warm — the common case is the worker enriching a candidate
+# minutes before the family clicks it. Same TTL as the memory cache.
+_INFO_PREFIX = "ytinfo:"
+_INFO_BLOB_MAX = 4_000_000  # b64 chars; a pathological info dict is simply not shared
+
+
+def _db_read_info(video_id: str) -> dict | None:
+    """Fresh info dict from the shared store, or None (absent, stale, corrupt)."""
+    try:
+        row = get_kv(_INFO_PREFIX + video_id)
+        gz = row.get("gz") if isinstance(row, dict) else None
+        if not gz or time.time() - float(row.get("ts") or 0) >= INFO_TTL_S:
+            return None
+        info = json.loads(gzip.decompress(base64.b64decode(gz)))
+        return info if isinstance(info, dict) and info.get("id") == video_id else None
+    except Exception:
+        log.debug("shared info read failed for %s", video_id, exc_info=True)
+        return None
+
+
+def _db_write_info(video_id: str, info: dict) -> None:
+    """Best-effort share; never let a storage problem fail an extraction."""
+    try:
+        blob = base64.b64encode(gzip.compress(json.dumps(info, default=str).encode(), 6)).decode()
+        if len(blob) > _INFO_BLOB_MAX:
+            return
+        save_setting(_INFO_PREFIX + video_id, {"ts": time.time(), "gz": blob})
+    except Exception:
+        log.debug("shared info write failed for %s", video_id, exc_info=True)
+
 
 def _cached(video_id: str) -> dict | None:
     """Caller holds _cache_lock. Returns info, raises cached failure, or None."""
@@ -368,7 +402,8 @@ def _cached(video_id: str) -> dict | None:
 
 
 def video_info(video_id: str, origin: str = "worker") -> dict:
-    """Full yt-dlp info (formats with bt_init_range/bt_index_range, subtitles, chapters...). Cached 4h;
+    """Full yt-dlp info (formats with bt_init_range/bt_index_range, subtitles, chapters...). Cached 4h
+    in memory and in the shared KV store (read across processes: worker enrich warms api plays);
     failures cached 60s (YtBlocked 10 min) so concurrent/repeated callers don't hammer YouTube.
     The returned dict is shared: treat as read-only."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id or ""):
@@ -381,6 +416,11 @@ def video_info(video_id: str, origin: str = "worker") -> dict:
         with _cache_lock:
             if (hit := _cached(video_id)) is not None:
                 return hit
+        shared = _db_read_info(video_id)  # another process (worker/downloader) may have it warm
+        if shared is not None:
+            with _cache_lock:
+                _cache[video_id] = (time.time(), shared)
+            return shared
         try:
             info = _extract(f"https://www.youtube.com/watch?v={video_id}", "video", origin, f"video {video_id}")
         except YtError as e:
@@ -396,6 +436,7 @@ def video_info(video_id: str, origin: str = "worker") -> dict:
                 for k in [k for k, (until, _) in _fail.items() if t >= until]:
                     _fail.pop(k, None)
                 _cache[video_id] = (t, info)
+            _db_write_info(video_id, info)
             return info
         finally:  # result/failure is cached before the lock is dropped, so no gap for re-extraction
             with _cache_lock:
@@ -407,12 +448,14 @@ def cache_drop(video_id: str) -> None:
     """Forget a cached info (e.g. its stream URLs started returning 403)."""
     with _cache_lock:
         _cache.pop(video_id, None)
+    drop_kv(_INFO_PREFIX + video_id)
 
 
 def cache_clear() -> None:
     with _cache_lock:
         _cache.clear()
         _fail.clear()
+    drop_kv_prefix(_INFO_PREFIX)
 
 
 def cookie_check(origin: str = "user") -> dict:

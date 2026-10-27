@@ -3,6 +3,7 @@
 	import { focusable, type NavKey } from '$lib/nav';
 	import { api } from '$lib/api';
 	import { fmtDuration, fmtCount, timeAgo } from '$lib/util';
+	import { warmVideo } from '$lib/prefetch';
 	import type { Video } from '$lib/types';
 
 	interface Props {
@@ -48,7 +49,8 @@
 		class="hit"
 		href={link}
 		aria-label={v.title ?? v.id}
-		use:focusable={{ group, id: id ?? `v-${group ?? ''}-${v.id}`, autofocus, onKey: dive, onSelect: onSelect ? (e) => (e?.preventDefault(), onSelect()) : undefined }}
+		onpointerenter={() => warmVideo(v.id, { offline: !!v.offline })}
+		use:focusable={{ group, id: id ?? `v-${group ?? ''}-${v.id}`, autofocus, onKey: dive, onFocus: () => warmVideo(v.id, { offline: !!v.offline }), onSelect: onSelect ? (e) => (e?.preventDefault(), onSelect()) : undefined }}
 	></a>
 	<div class="thumb">
 		{#if !broken}

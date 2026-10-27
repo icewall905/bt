@@ -81,6 +81,24 @@ def get_kv(key: str, default=None) -> dict:
         return row.value if row else (default if default is not None else {})
 
 
+def drop_kv(key: str) -> None:
+    with session() as s:
+        row = s.get(Setting, key)
+        if row:
+            s.delete(row)
+            s.commit()
+
+
+def drop_kv_prefix(prefix: str) -> int:
+    """Delete every kv row whose key starts with `prefix`. -> number of rows deleted."""
+    with session() as s:
+        rows = s.exec(select(Setting).where(Setting.key.startswith(prefix))).all()
+        for r in rows:
+            s.delete(r)
+        s.commit()
+        return len(rows)
+
+
 # --- Agent state (written by worker, read by api) & control (written by api, read by worker)
 
 def set_agent_state(**state) -> None:

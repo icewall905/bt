@@ -1,11 +1,22 @@
 """ytdl helpers (no network unless BT_LIVE=1)."""
-import json
 import os
-from datetime import timezone
+import tempfile
 
-import pytest
+os.environ.setdefault("BT_DATA_DIR", tempfile.mkdtemp(prefix="bt-test-"))
 
-from bt import feeds, ytdl
+import base64  # noqa: E402
+import gzip  # noqa: E402
+import json  # noqa: E402
+import time  # noqa: E402
+from datetime import timezone  # noqa: E402
+
+from bt.db import get_kv, init_db, save_setting  # noqa: E402
+
+init_db()
+
+import pytest  # noqa: E402
+
+from bt import feeds, ytdl  # noqa: E402
 
 
 @pytest.mark.parametrize("msg,cls", [
@@ -268,6 +279,62 @@ def test_live_transcript_comments_rss():
     ch, vids = ytdl.channel_videos("@RickAstleyYT", 3, origin="user")
     assert ch["id"].startswith("UC") and vids
     assert feeds.channel_feed(ch["id"], origin="user")
+
+
+def test_video_info_stored_in_shared_cache(monkeypatch):
+    """A successful extraction is written to the shared KV store (compressed) so another
+    process — worker enriched it, api plays it — reads it warm without extracting again."""
+    ytdl.cache_clear()
+    calls = []
+
+    def fake(url, kind, origin, detail, **opts):
+        calls.append(url)
+        return {"id": "shared00000", "title": "Warm", "formats": [
+            {"format_id": "18", "url": "https://x/v", "bt_init_range": "0-999", "bt_index_range": "1000-2000"}]}
+
+    monkeypatch.setattr(ytdl, "_extract", fake)
+    got = ytdl.video_info("shared00000", origin="worker")
+    assert got["id"] == "shared00000" and len(calls) == 1
+    row = get_kv("ytinfo:shared00000")
+    assert row["ts"] > 0 and row["gz"]
+    assert json.loads(gzip.decompress(base64.b64decode(row["gz"])))["id"] == "shared00000"
+
+    # Fresh process: memory empty, shared store warm -> no second extraction, ranges intact.
+    ytdl._cache.clear()
+    got2 = ytdl.video_info("shared00000", origin="user")
+    assert len(calls) == 1
+    assert got2["id"] == "shared00000"
+    assert got2["formats"][0]["bt_init_range"] == "0-999"
+
+    # cache_drop forgets both layers: next call extracts again.
+    ytdl.cache_drop("shared00000")
+    ytdl._cache.clear()
+    ytdl.video_info("shared00000")
+    assert len(calls) == 2 and get_kv("ytinfo:shared00000")["ts"] > 0
+
+    # A stale shared entry is ignored and re-extracted (same 4h TTL as the memory cache).
+    row = get_kv("ytinfo:shared00000")
+    save_setting("ytinfo:shared00000", {"ts": time.time() - ytdl.INFO_TTL_S - 10, "gz": row["gz"]})
+    ytdl._cache.clear()
+    ytdl.video_info("shared00000")
+    assert len(calls) == 3
+
+    # A corrupt shared entry must never break playback: ignored, extracted fresh.
+    save_setting("ytinfo:shared00000", {"ts": time.time(), "gz": "not-base64!"})
+    ytdl._cache.clear()
+    assert ytdl.video_info("shared00000")["id"] == "shared00000"
+    assert len(calls) == 4
+    ytdl.cache_clear()
+
+
+def test_cache_clear_purges_shared_infos(monkeypatch):
+    monkeypatch.setattr(ytdl, "_extract", lambda *a, **k: {"id": "purge000000", "formats": []})
+    ytdl.cache_clear()
+    ytdl._cache.clear()
+    ytdl.video_info("purge000000")
+    assert get_kv("ytinfo:purge000000")["gz"]
+    ytdl.cache_clear()
+    assert get_kv("ytinfo:purge000000") == {}
 
 
 def test_video_info_failure_cached_and_shared(monkeypatch):
