@@ -7,6 +7,7 @@
 	import { focusable } from '$lib/nav';
 	import { fmtDuration, isVideo } from '$lib/util';
 	import { toast } from '$lib/stores/toast.svelte';
+	import { warmVideo } from '$lib/prefetch';
 	import type { HomeRow, Video } from '$lib/types';
 	import Row from '$lib/components/Row.svelte';
 	import VideoCard from '$lib/components/VideoCard.svelte';
@@ -21,9 +22,34 @@
 		try {
 			rows = await api.home(24);
 			failed = false;
+			warmLikely();
 		} catch {
 			failed = true;
 			rows = rows ?? [];
+		}
+	}
+
+	const WARM_GAP_MS = 3500;
+	let warmTimers: ReturnType<typeof setTimeout>[] = [];
+
+	/** Warm the likely first plays — the hero pick and each row's first card — spaced out in the
+	 * background. A click then lands on ready streams instead of a 3s extraction plus format checks.
+	 * Already-warm videos are no-ops; offline copies are skipped (they play instantly anyway). */
+	function warmLikely() {
+		for (const t of warmTimers) clearTimeout(t);
+		warmTimers = [];
+		if (!rows) return;
+		const seen = new Set<string>();
+		const targets: { id: string; offline?: boolean }[] = [];
+		if (hero) targets.push({ id: hero.video.id, offline: hero.video.offline });
+		for (const r of catRows) {
+			const it = r.items.find((x) => x.video && isVideo(x.video));
+			if (it && isVideo(it.video)) targets.push({ id: it.video.id, offline: it.video.offline });
+		}
+		for (const t of targets.slice(0, 10)) {
+			if (seen.has(t.id)) continue;
+			seen.add(t.id);
+			warmTimers.push(setTimeout(() => warmVideo(t.id, { offline: t.offline, manifest: true, force: true }), (seen.size - 1) * WARM_GAP_MS));
 		}
 	}
 
@@ -74,6 +100,7 @@
 		return () => {
 			off();
 			if (t) clearTimeout(t);
+			for (const w of warmTimers) clearTimeout(w);
 		};
 	});
 

@@ -8,6 +8,7 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { focusable } from '$lib/nav';
 	import { isVideo, timeAgo } from '$lib/util';
+	import { warmVideo } from '$lib/prefetch';
 	import type { Candidate, Category } from '$lib/types';
 	import VideoCard from '$lib/components/VideoCard.svelte';
 	import AgentGlyph from '$lib/components/AgentGlyph.svelte';
@@ -34,6 +35,9 @@
 		} catch {
 			items = [];
 		}
+		// Warm the first picks of the grid: the likeliest next plays.
+		if (tab === 'accepted')
+			items.slice(0, 3).forEach((c, i) => setTimeout(() => warmVideo(c.video.id, { offline: isVideo(c.video) && !!c.video.offline, manifest: true, force: true }), i * 3500));
 	}
 	onMount(() => {
 		loadCat();
