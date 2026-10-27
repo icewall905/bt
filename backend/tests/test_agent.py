@@ -989,3 +989,98 @@ def test_structured_output_http_truncation_increases_budget(monkeypatch):
     assert all(b['reasoning_effort'] == 'medium' for b in sent)
     assert all(c['timeout_s'] == 600 for c in configs)
     assert llm._cfg() == original  # Import-specific timeout does not change worker settings.
+
+
+def test_ai_judge_overlaps_research(monkeypatch):
+    import threading
+    from bt.agent import enrich
+
+    cat = make_category()
+    w = make_worker()
+    with session() as s:
+        for vid, status in (("ready", "enriched"), ("next", "found")):
+            s.add(Video(id=vid, title=vid))
+            s.add(Candidate(category_id=cat.id, video_id=vid, status=status))
+        s.commit()
+    judging = threading.Event()
+    researching = threading.Event()
+
+    def judge_one(rt, cand):
+        judging.set()
+        assert researching.wait(3), "research was blocked behind AI"
+        return "accepted"
+
+    def research(rt, rl, cand, category):
+        researching.set()
+        assert judging.wait(3), "AI was blocked behind research"
+        return "enriched"
+
+    monkeypatch.setattr(judge, "judge_one", judge_one)
+    monkeypatch.setattr(enrich, "enrich_one", research)
+    w.iterate()
+    assert judging.is_set() and researching.is_set()
+
+
+@pytest.mark.parametrize("empty_transcript", [False, True])
+def test_research_resumes_after_comments_block_without_refetch(empty_transcript):
+    from bt.agent import enrich
+    from bt.db import get_kv
+
+    cat = make_category()
+    w = make_worker()
+    with session() as s:
+        s.add(Video(id="resume", title="resume"))
+        cand = Candidate(category_id=cat.id, video_id="resume")
+        s.add(cand)
+        s.commit()
+    if empty_transcript:
+        def transcript(info, max_chars):
+            w.rt.yt._log("transcript")
+            return ""
+        w.rt.yt.transcript = transcript
+    w.rt.yt.block_on.add("comments")
+    with pytest.raises(YtBlocked):
+        enrich.enrich_one(w.rt, w.rl, cand, cat)
+    assert "transcript" in get_kv("research:resume")
+    w.rt.yt.block_on.clear()
+    restarted = make_worker(yt=w.rt.yt)
+    assert enrich.enrich_one(restarted.rt, restarted.rl, cand, cat) == "enriched"
+    assert w.rt.yt.calls == ["metadata", "transcript", "comments", "comments"]
+    assert get_kv("research:resume") == {}
+
+
+def test_research_prefers_cached_then_trusted_candidates():
+    cat = make_category()
+    with session() as s:
+        s.add(ProfileChannel(profile_id=cat.profile_id, channel_id="trusted", trust=0.8))
+        for vid, channel, enriched in (("old", "neutral", None), ("trusted", "trusted", None),
+                                        ("cached", "neutral", now())):
+            s.add(Video(id=vid, channel_id=channel, enriched_at=enriched))
+            s.add(Candidate(category_id=cat.id, video_id=vid))
+        s.commit()
+        needs = data.category_needs(s)
+    assert Worker._next_found(needs).video_id == "cached"
+    with session() as s:
+        c = s.exec(select(Candidate).where(Candidate.video_id == "cached")).one()
+        c.status = "enriched"
+        s.add(c)
+        s.commit()
+    assert Worker._next_found(needs).video_id == "trusted"
+
+
+def test_expired_caption_checkpoint_refreshes_metadata():
+    from bt.agent import enrich
+    from bt.db import get_kv
+
+    cat = make_category()
+    w = make_worker()
+    with session() as s:
+        s.add(Video(id="expired", title="expired", fetched_at=now()))
+        cand = Candidate(category_id=cat.id, video_id="expired")
+        s.add(cand)
+        s.commit()
+    save_setting("research:expired", {"metadata_done": True, "metadata_ts": 0,
+                                      "caption_info": {"id": "expired"}})
+    assert enrich.enrich_one(w.rt, w.rl, cand, cat) == "enriched"
+    assert w.rt.yt.calls == ["metadata", "transcript", "comments"]
+    assert get_kv("research:expired") == {}
