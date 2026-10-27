@@ -121,6 +121,7 @@
 					<span>Target {cat?.target_queue ?? '–'} videos</span>
 					<span>Accept at {cat?.threshold ?? '–'}+</span>
 					{#if cat?.kid_safe}<span class="kid">Kid-safe</span>{/if}
+					{#if cat?.created_at}<span>Created {timeAgo(cat.created_at)}</span>{/if}
 					{#if cat?.last_worked_at}<span>Last searched {timeAgo(cat.last_worked_at)}</span>{/if}
 				</div>
 			</div>

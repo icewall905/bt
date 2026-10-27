@@ -4,6 +4,7 @@
 	import { api } from '$lib/api';
 	import { session } from '$lib/stores/session.svelte';
 	import { focusable } from '$lib/nav';
+	import { timeAgo } from '$lib/util';
 	import type { Category, CategoryInput } from '$lib/types';
 	import Section from './Section.svelte';
 	import CategoryForm from './CategoryForm.svelte';
@@ -88,7 +89,7 @@
 					<span class="e">{c.emoji}</span>
 					<div class="info">
 						<strong><a class="catname" href="/category/{c.id}" use:focusable={{ group: `cat-${c.id}`, id: `cat-view-${c.id}` }}>{c.name}</a></strong>
-						<span class="small muted">{c.stats?.accepted ?? 0} ready, {(c.stats?.found ?? 0) + (c.stats?.enriched ?? 0)} in review, {c.stats?.rejected ?? 0} rejected{c.kid_safe ? ', kid-safe' : ''}</span>
+						<span class="small muted">{c.stats?.accepted ?? 0} ready, {(c.stats?.found ?? 0) + (c.stats?.enriched ?? 0)} in review, {c.stats?.rejected ?? 0} rejected{c.kid_safe ? ', kid-safe' : ''}{c.created_at ? `, created ${timeAgo(c.created_at)}` : ''}</span>
 					</div>
 					<button class="btn mini" aria-label="Move up" disabled={i === 0} use:focusable={{ group: `cat-${c.id}`, disabled: i === 0, onSelect: () => move(c, -1) }}>▲</button>
 					<button class="btn mini" aria-label="Move down" disabled={i === session.categories.length - 1} use:focusable={{ group: `cat-${c.id}`, disabled: i === session.categories.length - 1, onSelect: () => move(c, 1) }}>▼</button>

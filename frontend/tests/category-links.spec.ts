@@ -65,10 +65,37 @@ test('stats: clicking another profile\'s category switches to its profile first'
 	await freshPage(page, '/stats');
 	const link = page.locator('a.cat[href="/category/' + cat.id + '"]');
 	await expect(link).toContainText('Foreign category');
+	// Two profiles and no remembered choice → the app asks "Who's watching?". Pick the default
+	// so stats is browsed as it; the category click must then switch to the other profile.
+	const picker = page.getByRole('dialog', { name: "Who's watching?" });
+	if (await picker.isVisible()) await picker.locator('button.person').first().click();
 	await link.click();
 
 	await expect(page).toHaveURL('/category/' + cat.id);
 	await expect(page.getByRole('heading', { name: 'Foreign category' })).toBeVisible();
 	await expect(page.getByRole('link', { name: 'Video from the other profile' })).toBeVisible();
 	await expect.poll(() => page.evaluate(() => localStorage.getItem('bt.profile'))).toBe(String(other.id));
+});
+
+test('settings and category view show the category age', async ({ page, request }) => {
+	await resetBackend(request);
+	const cat = await (await request.post('/api/categories', { data: { name: 'Age display test', brief: 'b' } })).json();
+	// Pin created_at 40 days back so the age reads "1 mo ago" however long the run takes.
+	execFileSync(join(BACKEND!, '.venv/bin/python'), ['-c', `
+from datetime import datetime, timedelta, timezone
+from bt.db import init_db, session
+from bt.models import Category
+init_db()
+with session() as s:
+	c = s.get(Category, ${cat.id})
+	c.created_at = datetime.now(timezone.utc) - timedelta(days=40)
+	s.add(c)
+	s.commit()
+`], { cwd: BACKEND, env: { ...process.env, BT_DATA_DIR: DATA! } });
+
+	await freshPage(page, '/settings?tab=categories');
+	await expect(page.locator('.item', { hasText: 'Age display test' })).toContainText('created 1 mo ago');
+
+	await freshPage(page, '/category/' + cat.id);
+	await expect(page.locator('.head')).toContainText('Created 1 mo ago');
 });
