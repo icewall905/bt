@@ -3,6 +3,49 @@
 Read first: `docs/PLAN.md` (design), `docs/CONTRACT.md` (interfaces, ticket ownership, Ticket D spec), `README.md`, `frontend/README.md`.
 Workflow: `/home/hnyg/AGENTS.md` (implement → independent review → fix → re-review). Never add AI attribution trailers to commits.
 
+## Handover 2026-10-27 (second agent docs: previews "no motion" fixed, needs user confirmation)
+
+State: everything below is **committed (`332ce3c`…`424c787`), pushed to origin/main, and deployed** (`docker compose up -d --build`
+on `root@10.0.10.73:/root/compose/bt`, all four containers healthy, `https://bt.tdgs.org/api/health` 200). Working tree was clean.
+
+1. **Hover previews** (`frontend/src/lib/preview.ts`, committed `15f0dd4` + `58f07b0`): silent muted autoplay on hover of every
+   video thumbnail. Markup: `use:preview={{ id, offline, listenOn?, host? }}` action. Source: local `/api/video/{id}/file` when
+   saved offline, otherwise Shaka DASH `manifest.mpd?max_height=540` (same signed proxy as the player). One preview at a time,
+   350 ms arm delay, teardown + stream abort on pointer-leave. Wired on VideoCard, candidate drawer, agent rows (3 spots),
+   status pill, stats explorer, storage list, watch up-next, home hero (masked) in `preview.ts` consumers.
+2. **Critical facts discovered while debugging "I don't see motion"** (keep these in mind for any media work):
+   - `/api/video/{id}/fallback` is **dead on modern YouTube**: yt-dlp returns no muxed progressive formats ("no progressive
+     format", 404). Any new code must use the DASH manifest + Shaka (or offline files). The player already did; previews do now.
+   - First attempt stopped the preview ~0.7–1.5 s after it started: agent `accept` events reload home/category rows
+     (`+page.svelte` reloads 1.5 s after every `accept`), and the action restarted/blanked on prop churn; re-created cards also
+     never receive a `pointerenter` (parked pointer). Fix in `preview.ts`: same-target `update()` keeps a running preview (only a
+     real id/offline change restarts), and a module-level pointermove tracker re-arms re-created actions when the pointer is
+     already inside their trigger. Verified on the live site: ≥8 s uninterrupted hover and survival of two forced
+     `POST /api/candidates` reloads with zero teardown ticks.
+   - **Debug recipe**: grep bt-api logs for the preview fingerprint `manifest.mpd?max_height=540` (element mounted, shaka started)
+     followed by `GET /api/proxy/...` 206s (segments flowing). If 540 manifests appear but proxy hits don't follow → shaka failed
+     after manifest check client-side. Use the live-headless check below.
+3. **Tests now** (all green):
+   - Backend: `cd backend && .venv/bin/python -m pytest -q` → 162 passed / 4 skipped.
+   - Frontend: `npm run check` clean, `npm run build` OK, `npm run test:e2e` → 44/44 (new `tests/preview.spec.ts` seeds a real
+     local mp4 and proves the preview survives a family-accept rows reload mid-hover).
+   - Real-YouTube: `BT_LIVE=1 npm run test:e2e -- tests/content.spec.ts` → 3/3 (playback, hover lifecycle, hover surviving a
+     live rows refresh). For diagnosing against the deployed site, a throwaway playwright config with `baseURL:
+     'https://bt.tdgs.org'` works because auth is disabled (`.env` `BT_PASSWORD=` empty).
+4. **Open items for the next agent**:
+   - Get the user to **hard-reload** `https://bt.tdgs.org` once and confirm motion appears on hover. The PWA service worker
+     serves the app shell cache-first (`bt-shell-<version>`), so a page that has stayed open since before the deploys keeps old
+     chunks until a reload picks up the new `sw.js` (if stubborn: DevTools → Application → unregister SW / clear shell cache).
+   - If the user still reports no motion after reload: check their device's `(hover: hover)` media query (touch-only screens are
+     deliberately skipped) and reproduce headless against the live site like in the debug recipe; preview console/`stop` path
+     (`playing` gate) is the only remaining suspect; `AgentEvent` flood refreshes and autoplay-policy blocks are already handled.
+   - Known cosmetic quirks, intentionally left: SponsorBlock segments are not applied to previews; keyboard-focus does not
+     trigger previews (pointer only); `prefers-reduced-motion` still animates (user asked for autoplay explicitly).
+5. **Download-purge rules** (`332ce3c`): rejected (Family dislike or Judge, no accepted candidate left) and finished-watched
+   videos are evicted immediately (`drop_unwanted` hooks on feedback/history/seen endpoints, in-flight downloads abort via the
+   control hook, `purge_unwanted` sweep each downloader iteration even when paused/disabled; `sync_queue` never queues watched
+   videos). Pinned saves and copies with a file request in the last 10 min are left for a later sweep.
+
 ## 2026-10-27 updates
 - User-facing rename: categories are now called **playlists** everywhere visible (Settings, Home, search,
   player, agent, Stats). `/settings?tab=playlists` opens the same section; `tab=categories` links still work.
