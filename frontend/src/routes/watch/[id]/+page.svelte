@@ -71,7 +71,7 @@
 		if (hideTimer) clearTimeout(hideTimer);
 		hideTimer = setTimeout(() => {
 			if (!paused && !menu && !info && !ended && !askSeg) controls = false;
-		}, 5000);
+		}, 3000);
 	}
 	$effect(() => {
 		if (paused || ended) {
