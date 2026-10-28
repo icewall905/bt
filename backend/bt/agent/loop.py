@@ -9,7 +9,7 @@ from sqlmodel import col, select
 
 from ..db import session
 from ..models import Candidate
-from . import data, enrich, judge, learn, planner
+from . import data, enrich, judge, learn, memory, planner
 from .ratelimit import RateLimiter
 from ..models import now
 from .runtime import Disabled, Interrupt, Paused, Runtime, Stopped
@@ -41,6 +41,8 @@ class Worker:
 
         # (1) learn — LLM only, highest priority
         if rt.llm_ok() and learn.process(rt):
+            did = True
+        if rt.llm_ok() and not learn.pending_count() and memory.process(rt):
             did = True
 
         # (2) judge everything already enriched
@@ -112,7 +114,7 @@ class Worker:
             secs = max(IDLE_MIN_S, min(IDLE_S, (rt.llm_backoff_until - now()).total_seconds()))
             detail = "Waiting for the AI model to become available"
         rt.sleep(secs, "idle", detail, wake_on_run_now=True, min_s=IDLE_MIN_S,
-                 until_check=lambda ctl: rt.llm_ok() and learn.pending_count() > 0)
+                 until_check=lambda ctl: rt.llm_ok() and (learn.pending_count() > 0 or bool(ctl.get("memory_run_now"))))
 
     def _paused(self) -> None:
         rt = self.rt
@@ -155,6 +157,7 @@ class Worker:
 
     def run(self) -> None:
         rt = self.rt
+        memory.recover()
         try:
             rt.event("control", "🤖 Curator started", "info")
             rt.state("idle", "Starting")

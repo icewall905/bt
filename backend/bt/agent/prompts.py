@@ -76,7 +76,7 @@ def _fmt_dur(s: Optional[int]) -> str:
 
 
 def category_block(cat) -> str:
-    lines = [f"CATEGORY: {cat.name}", f"Brief: {cat.brief or '(none)'}"]
+    lines = [f"PLAYLIST {cat.id}: {cat.name}", f"Brief: {cat.brief or '(none)'}"]
     if cat.include_keywords:
         lines.append("Good signs / topics: " + ", ".join(cat.include_keywords))
     if cat.exclude_keywords:
@@ -116,7 +116,7 @@ def rejections_block(rejections: list[str]) -> str:
 
 def judge_messages(cat, video, lessons: list, trust: Optional[float], transcript_chars: int,
                    max_comments: int = 40, queue: Optional[list[str]] = None,
-                   rejections: Optional[list[str]] = None) -> list[dict]:
+                   rejections: Optional[list[str]] = None, core: str = "") -> list[dict]:
     chapters = "; ".join(f"{_fmt_dur(c.get('start_time'))} {c.get('title', '')}" for c in (video.chapters or [])[:30])
     comments = []
     for c in (video.comments or [])[:max_comments]:
@@ -133,7 +133,6 @@ def judge_messages(cat, video, lessons: list, trust: Optional[float], transcript
         meta.append("Uploader tags: " + ", ".join(map(str, video.tags[:20])))
     user = "\n\n".join([
         category_block(cat) + f"\nAccept threshold: {cat.threshold}",
-        lessons_block(lessons),
         rejections_block(rejections or []),
         queue_block(queue or []),
         "VIDEO\n" + "\n".join(meta),
@@ -143,7 +142,8 @@ def judge_messages(cat, video, lessons: list, trust: Optional[float], transcript
                                                                         "description, comments and thumbnail)"),
         "TOP COMMENTS\n" + ("\n".join(comments) or "(no comments available)"),
     ])
-    return [{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": user}]
+    from .memory import apply
+    return apply([{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": user}], core, lessons_block(lessons))
 
 
 # ---------------------------------------------------------------- planner
@@ -180,14 +180,13 @@ Output ONLY the JSON object."""
 
 
 def planner_messages(cat, lessons: list, accepted: list[str], rejected: list[str], disliked: list[str],
-                     tried: list[str], queue: Optional[list[str]] = None) -> list[dict]:
+                     tried: list[str], queue: Optional[list[str]] = None, core: str = "") -> list[dict]:
     # Keep stable category/seeds/lessons context ahead of changing queue/history.
     parts = [category_block(cat)]
     if cat.seed_queries:
         parts.append("Seed queries from the family: " + "; ".join(cat.seed_queries))
     if cat.seed_channels:
         parts.append("Seed channels from the family: " + ", ".join(cat.seed_channels))
-    parts.append(lessons_block(lessons))
     parts.append(queue_block(queue or []))
     if accepted:
         parts.append("Recently ACCEPTED (good examples):\n" + "\n".join(f"- {t}" for t in accepted))
@@ -198,7 +197,8 @@ def planner_messages(cat, lessons: list, accepted: list[str], rejected: list[str
         parts.append("The family DISLIKED:\n" + "\n".join(f"- {t}" for t in disliked))
     if tried:
         parts.append("Queries already tried (do not repeat): " + "; ".join(tried))
-    return [{"role": "system", "content": PLANNER_SYSTEM}, {"role": "user", "content": "\n\n".join(parts)}]
+    from .memory import apply
+    return apply([{"role": "system", "content": PLANNER_SYSTEM}, {"role": "user", "content": "\n\n".join(parts)}], core, lessons_block(lessons))
 
 
 # ---------------------------------------------------------------- learner
@@ -248,11 +248,12 @@ guide future video picking (the judge reads them and must obey them).
 Output ONLY the JSON object."""
 
 
-def learn_messages(profile_name: str, categories: list, lessons: list, items: list[dict]) -> list[dict]:
+def learn_messages(profile_name: str, categories: list, lessons: list, items: list[dict], core: str = "") -> list[dict]:
     cats = "\n".join(f"- id {c.id}: {c.name} — {_clip(c.brief, 200)}" for c in categories) or "(none)"
     existing = "\n".join(f"- id {le.id} (category {le.category_id}, channel {le.channel_id}): {le.text}"
                          for le in lessons) or "(none)"
     fb = json.dumps(items, ensure_ascii=False, indent=1, default=str)
-    user = (f"PROFILE: {profile_name}\n\nCATEGORIES:\n{cats}\n\nEXISTING LESSONS:\n{existing}\n\n"
+    user = (f"PROFILE: {profile_name}\n\nCATEGORIES:\n{cats}\n\n"
             f"NEW FEEDBACK (rating: -1 dislike, 0 note, 1 like, 2 love):\n{fb}")
-    return [{"role": "system", "content": LEARN_SYSTEM}, {"role": "user", "content": user}]
+    from .memory import apply
+    return apply([{"role": "system", "content": LEARN_SYSTEM}, {"role": "user", "content": user}], core, "EXISTING LESSONS:\n" + existing)

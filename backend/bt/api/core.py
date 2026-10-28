@@ -666,6 +666,18 @@ def write_settings(key: str, value: dict, s: Session = Depends(get_session)):
     if key not in DEFAULT_SETTINGS:
         raise HTTPException(404, "unknown settings key")
     cur = get_settings(s)[key]
+    if key == "memory":
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        merged = {**cur, **value}
+        try:
+            hour, minute = map(int, merged["time"].split(":"))
+            if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+                raise ValueError()
+            ZoneInfo(merged["timezone"])
+            if type(merged["enabled"]) is not bool or type(merged["max_core_tokens"]) is not int or not 10000 <= merged["max_core_tokens"] <= 100000:
+                raise ValueError()
+        except (ValueError, TypeError, KeyError, AttributeError, ZoneInfoNotFoundError):
+            raise HTTPException(400, "Use a valid HH:MM time, time zone, and core budget between 10000 and 100000 estimated tokens")
     if key == "llm" and value.get("api_key") == "********":
         value["api_key"] = cur.get("api_key", "")
     if key == "throttle" and value.get("proxy") == "********":
@@ -897,7 +909,8 @@ def stats_page(days: int = 30, s: Session = Depends(get_session)):
         "original_bytes": saved_original,
         "saved_bytes": saved_original - saved_output,
     }
-    return {"overview": overview, "categories": list(per_cat.values()), "daily": list(daily.values()),
+    from ..llm_metrics import overview as context_overview
+    return {"overview": overview, "categories": list(per_cat.values()), "daily": list(daily.values()), "context": context_overview(s),
             "reencode": reencode, "decisions": decisions,
             "library": {"duration_s": sum(durations), "duration_known": len(durations),
                         "duration_unknown": len(offline_rows) - len(durations),

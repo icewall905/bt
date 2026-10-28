@@ -52,6 +52,7 @@ DEFAULT_SETTINGS: dict = {
         "proxy": "",  # route YouTube traffic through this proxy, e.g. socks5://user:pass@host:1080
     },
     "agent": {"enabled": True},
+    "memory": {"enabled": True, "time": "03:00", "timezone": "Europe/Copenhagen", "max_core_tokens": 15000},
     "player": {
         "max_height": 1080,
         "prefer_codec": "avc1",  # avc1 | vp9 | av01

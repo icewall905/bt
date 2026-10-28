@@ -232,14 +232,22 @@ def _request(messages, json_schema, max_tokens, images, temperature, schema_name
     if use_schema:
         body["response_format"] = {"type": "json_schema",
                                    "json_schema": {"name": schema_name, "strict": True, "schema": json_schema}}
-    r = _post(cfg, body, abort)
+    def send():
+        from .llm_metrics import record
+        response = None
+        try:
+            response = _post(cfg, body, abort)
+            return response
+        finally:
+            record(body, schema_name, response)
+    r = send()
     if use_schema and r.status_code in (400, 415, 422, 501) and _SCHEMA_ERR_RE.search(r.text or ""):
         log.info("LLM rejected response_format (%s); falling back to plain prompt", r.status_code)
         _schema_unsupported.add(base)
         body.pop("response_format", None)
         if abort:
             abort()
-        r = _post(cfg, body, abort)
+        r = send()
     if r.status_code >= 400 and json_schema is not None and re.search(
             r"finish_reason\s*[=:]\s*length|increase the output budget", r.text or "", re.I):
         raise LlmTruncated("server reported truncated structured output")

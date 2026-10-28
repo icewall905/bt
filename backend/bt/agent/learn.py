@@ -94,6 +94,8 @@ def _process_profile(rt: Runtime, pid: int, batch: list[Feedback]) -> int:
         prof = s.get(Profile, pid)
         cats = list(s.exec(select(Category).where(Category.profile_id == pid)).all())
         lessons = list(s.exec(select(Lesson).where(Lesson.profile_id == pid, Lesson.active == True)).all())  # noqa: E712
+        from .memory import select_memory
+        core, lessons = select_memory(s, pid, lessons)
         items, channels = _items(s, batch)
     meaningful = [it for it in items if it["rating"] != 0 or it["chips"] or (it["text"] or "").strip()]
     out_lessons: list[dict] = []
@@ -101,7 +103,7 @@ def _process_profile(rt: Runtime, pid: int, batch: list[Feedback]) -> int:
         rt.state("learning", f"Learning from {len(batch)} feedback item(s)", None, profile_id=pid)
         rt.event("learn", f"🧠 Learning from {len(batch)} new feedback item(s) ({prof.name if prof else pid})",
                  "info", profile_id=pid, payload={"feedback_ids": [f.id for f in batch]})
-        msgs = prompts.learn_messages(prof.name if prof else str(pid), cats, lessons, meaningful)
+        msgs = prompts.learn_messages(prof.name if prof else str(pid), cats, lessons, meaningful, core=core)
         try:
             out = rt.llm.chat_json(msgs, json_schema=prompts.LEARN_SCHEMA, max_tokens=2500, schema_name="lessons",
                                    abort=rt.check)

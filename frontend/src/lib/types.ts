@@ -331,6 +331,7 @@ export interface Settings {
 		transcript_max_chars: number;
 	};
 	agent: { enabled: boolean };
+	memory: { enabled: boolean; time: string; timezone: string; max_core_tokens: number };
 	player: { max_height: number; prefer_codec: string; autoplay_next: boolean; default_speed: number; captions_lang: string };
 	sponsorblock: { enabled: boolean; categories: Record<string, SbAction>; min_segment_s: number };
 	extras: { dearrow: boolean; ryd: boolean; hide_shorts: boolean };
@@ -450,6 +451,7 @@ export interface StatsDay {
 }
 
 export interface StatsPageData {
+	context: LlmContextStats;
 	decisions: Record<string, number>;
 	library: {
 		duration_s: number; duration_known: number; duration_unknown: number;
@@ -484,6 +486,21 @@ export interface StatsPageData {
 	};
 	categories: StatsCategoryRow[];
 	daily: StatsDay[];
+}
+
+export interface LlmContextStats {
+	requests: number; failed: number; average_input_tokens: number; max_input_tokens: number;
+	estimated_requests: number; cached_tokens: number; average_core_chars: number;
+	average_correction_chars: number; window_hours: number;
+	by_task: { task: string; requests: number; average_input_tokens: number }[];
+}
+
+export interface MemoryStatus {
+	run: { state: string; started_at?: string; finished_at?: string; error?: string;
+		profiles?: { profile_id: number; profile?: string; status: string; lessons?: number; before_chars?: number; core_chars?: number }[] };
+	core: string; core_valid: boolean; core_updated_at: string | null;
+	core_budget_tokens: number | null;
+	versions: number; active_rules: number; corrections: number; context: LlmContextStats;
 }
 
 export interface StatsExploreFilter {

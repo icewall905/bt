@@ -63,10 +63,12 @@ def sources(cat: Category, plan: dict, subs: list[str]) -> list[tuple[str, str]]
 def make_plan(rt: Runtime, cat: Category, plan: dict) -> bool:
     """Ask the LLM for fresh queries. Returns True on success (plan updated in place)."""
     with session() as s:
+        from .memory import select_memory
+        core, lessons = select_memory(s, cat.profile_id, data.lessons_for(s, cat))
         msgs = prompts.planner_messages(
-            cat, data.lessons_for(s, cat), data.recent_titles(s, cat.id, "accepted"),
+            cat, lessons, data.recent_titles(s, cat.id, "accepted"),
             data.rejections_for(s, cat.id, cat.profile_id), data.recent_dislikes(s, cat.profile_id),
-            plan.get("tried", [])[-TRIED_KEEP:], data.queue_context(s, cat.id, cat.profile_id))
+            plan.get("tried", [])[-TRIED_KEEP:], data.queue_context(s, cat.id, cat.profile_id), core=core)
     rt.state("planning", f"Planning searches for {cat.name}", cat)
     rt.event("plan", f"🧭 Planning new searches for {cat.name}", "info", cat)
     try:

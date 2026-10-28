@@ -10,6 +10,7 @@
 	import StatsExplorer from '$lib/components/StatsExplorer.svelte';
 	import StatsDonut from '$lib/components/StatsDonut.svelte';
 	import StatsActivityChart from '$lib/components/StatsActivityChart.svelte';
+	import ContextOverview from '$lib/components/ContextOverview.svelte';
 
 	let data = $state<StatsPageData | null>(null);
 	let days = $state(30);
@@ -180,6 +181,9 @@
 				</div>
 				<p class="small muted">Measured results include new and existing videos from when size tracking was added. Earlier encodes are included in the current saved-copy count, but their original sizes were not recorded. Attempts can include retries; savings are cumulative even if a video is later deleted.</p>
 			</section>
+		{/if}
+		{#if data?.context}
+			<section class="panel stack"><h2>AI context per request <span class="faint small">last 24 hours</span></h2><ContextOverview context={data.context} /><a class="text-link small" href="/settings?tab=memory" use:focusable={{ group: 'stats-memory' }}>View core memory and consolidation settings</a></section>
 		{/if}
 
 		<section class="panel">

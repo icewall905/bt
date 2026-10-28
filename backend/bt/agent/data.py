@@ -24,7 +24,7 @@ def lessons_for(s: Session, cat: Category, channel_id: Optional[str] = None) -> 
         if le.channel_id and le.channel_id != channel_id and channel_id is not None:
             continue
         out.append(le)
-    return out[:40]
+    return out
 
 
 def trust_for(s: Session, profile_id: int, channel_id: str) -> Optional[float]:

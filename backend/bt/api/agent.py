@@ -19,6 +19,32 @@ from .core import _offline_ids, profile_id
 router = APIRouter()
 
 
+@router.get("/agent/memory")
+def memory_status(pid: int = Depends(profile_id), s: Session = Depends(get_session)):
+    from ..agent.memory import active, latest, select_memory
+    from ..llm_metrics import overview
+    from ..models import MemoryCore
+    lessons = active(s, pid)
+    revision = latest(s, pid)
+    core, corrections = select_memory(s, pid, lessons)
+    state = get_kv("memory_run", {"state": "idle"}, s)
+    if get_agent_control(s).get("memory_run_now"):
+        state = {**state, "state": "queued"}
+    return {"run": state, "core": revision.text if revision else "", "core_valid": bool(core),
+            "core_budget_tokens": revision.budget_tokens if revision else None,
+            "core_updated_at": revision.created_at if revision else None,
+            "versions": len(s.exec(select(MemoryCore.id).where(MemoryCore.profile_id == pid)).all()),
+            "active_rules": len(lessons), "corrections": len(corrections), "context": overview(s)}
+
+
+@router.post("/agent/memory/run")
+def memory_run():
+    if get_kv("memory_run").get("state") == "running":
+        return {"queued": False}
+    update_agent_control(memory_run_now=True)
+    return {"queued": True}
+
+
 def _queues(s: Session, pid: Optional[int]) -> list[dict]:
     q = select(Category)
     if pid:

@@ -138,6 +138,29 @@ class Lesson(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=now)
 
 
+class MemoryCore(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    profile_id: int = Field(index=True)
+    text: str = Field(sa_column=Column(Text))
+    sources: dict = J({})
+    budget_tokens: int = 15000
+    created_at: datetime = Field(default_factory=now)
+
+
+class LlmRequest(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=now, index=True)
+    task: str = ""
+    model: str = ""
+    input_tokens: int = 0
+    cached_tokens: int = 0
+    estimated: bool = True
+    input_chars: int = 0
+    core_chars: int = 0
+    correction_chars: int = 0
+    ok: bool = False
+
+
 class WatchHistory(SQLModel, table=True):
     __table_args__ = (UniqueConstraint("profile_id", "video_id"),)
     id: Optional[int] = Field(default=None, primary_key=True)

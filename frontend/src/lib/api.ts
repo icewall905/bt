@@ -24,6 +24,7 @@ import type {
 	SbSegment,
 	Settings,
 	StatsPageData,
+	MemoryStatus,
 	StatsExploreData,
 	StatsExploreFilter,
 	Video,
@@ -233,6 +234,8 @@ export const api = {
 		post<ImportFeedResult>('/ytimport/feed', body, { toast: false }),
 	stats: () => get<{ videos: number; candidates_24h: number; lessons: number }>('/stats', { toast: false }),
 	statsPage: (days = 30) => get<StatsPageData>(`/stats/page${q({ days })}`, { toast: false }),
+	memoryStatus: () => get<MemoryStatus>('/agent/memory', { toast: false }),
+	runMemory: () => post<{ queued: boolean }>('/agent/memory/run', {}),
 	statsExplore: (filter: StatsExploreFilter, offset = 0) => get<StatsExploreData>(`/stats/explore${q({ ...filter, offset })}`),
 
 	// agent

@@ -156,6 +156,7 @@ def fresh_db():
                               "quiet_hours": "", "search_results": 15, "max_comments": 40,
                               "transcript_max_chars": 5000})
     save_setting("llm", {"vision": True})
+    save_setting("memory", {"enabled": False})
     yield
     SQLModel.metadata.drop_all(engine)
     init_db()
@@ -461,7 +462,8 @@ def test_lessons_reach_judge_prompt():
         v = Video(id="x" * 11, title="T", channel_id="UC", transcript="hello", comments=[{"text": "nice", "likes": 3}])
         msgs = prompts.judge_messages(cat, v, data.lessons_for(s, cat, "UC"), 0.4, 1000)
     u = msgs[-1]["content"]
-    assert "Never pick prank videos" in u and "trust +0.4" in u and "hello" in u and "Kid-safe category: YES" in u
+    assert "Never pick prank videos" in msgs[0]["content"]
+    assert "trust +0.4" in u and "hello" in u and "Kid-safe category: YES" in u
 
 
 def test_prompt_stable_context_precedes_dynamic_queue_and_candidate():
@@ -525,7 +527,7 @@ def test_approval_correction_is_processed_and_lesson_reaches_future_judgments(mo
         lessons = data.lessons_for(s, cat, "UCnew")
         assert len(lessons) == 1 and lessons[0].category_id == cat.id
         msgs = prompts.judge_messages(cat, Video(id="future00001", title="Another build"), lessons, None, 1000)
-        assert "Welcome advanced marble builds" in msgs[-1]["content"]
+        assert "Welcome advanced marble builds" in msgs[0]["content"]
         assert data.trust_for(s, cat.profile_id, "UCbuild") is None
     assert learn.process(w.rt) == 0  # processed exactly once
 

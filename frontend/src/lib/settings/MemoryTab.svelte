@@ -9,6 +9,27 @@
 	import Section from './Section.svelte';
 	import TextField from '$lib/components/form/TextField.svelte';
 	import Select from '$lib/components/form/Select.svelte';
+	import Toggle from '$lib/components/form/Toggle.svelte';
+	import Slider from '$lib/components/form/Slider.svelte';
+	import SaveBar from './SaveBar.svelte';
+	import { SettingsDraft } from './useSettings.svelte';
+	import ContextOverview from '$lib/components/ContextOverview.svelte';
+	import type { MemoryStatus } from '$lib/types';
+	import { agent } from '$lib/stores/agent.svelte';
+	const config = new SettingsDraft('memory');
+	let memory = $state<MemoryStatus | null>(null);
+	let running = $state(false);
+	async function loadMemory() {
+		try { memory = await api.memoryStatus(); } catch { /* keep the last snapshot */ }
+	}
+	async function runNow() {
+		running = true;
+		try {
+			const result = await api.runMemory();
+			toast.success(result.queued ? 'Memory consolidation queued for all profiles' : 'Memory consolidation is already running');
+			await loadMemory();
+		} finally { running = false; }
+	}
 
 	let lessons = $state<Lesson[] | null>(null);
 	let feedback = $state<Feedback[] | null>(null);
@@ -20,7 +41,11 @@
 	async function load() {
 		[lessons, feedback] = await Promise.all([api.lessons().catch(() => []), api.feedbackList(100).catch(() => [])]);
 	}
-	onMount(load);
+	onMount(() => {
+		load(); loadMemory();
+		const timer = setInterval(loadMemory, 5000);
+		return () => clearInterval(timer);
+	});
 
 	const catOptions = $derived([{ value: 0, label: 'All my playlists' }, ...session.categories.map((c) => ({ value: c.id, label: `${c.emoji} ${c.name}` }))]);
 	const catLabel = (id: number | null) => {
@@ -56,7 +81,45 @@
 	const RATING: Record<number, string> = { [-1]: '👎', 0: '📝', 1: '👍', 2: '❤️' };
 </script>
 
-<Section title="AI memory" intro="Rules the AI learned from your feedback, plus any you add yourself. Every rule is included when the AI plans searches and judges videos for {session.profile?.name ?? 'this profile'}.">
+<Section title="Nightly memory consolidation" intro="Turn learned preferences into a compact, stable core before the next day. Original rules and previous core versions are retained.">
+	<div class="stack">
+		<Toggle label="Enable nightly consolidation" hint="Runs once nightly within four hours of the scheduled time. Waits while the curator is paused, disabled, or the model is unavailable. Manual runs work independently of this toggle." bind:checked={config.value.enabled} />
+		<div class="row">
+			<div class="grow"><TextField label="Nightly time" hint="24-hour HH:MM" bind:value={config.value.time} placeholder="03:00" group="memory-schedule" /></div>
+			<div class="grow"><TextField label="Time zone" hint="Observes daylight-saving changes." bind:value={config.value.timezone} placeholder="Europe/Copenhagen" group="memory-schedule" /></div>
+		</div>
+		<Slider label="Core token budget per profile" hint="Default: 15,000 tokens. This is a ceiling, not a size to fill. Leave room in the model's context window for transcripts, task data and the answer. Budget uses a text estimate of four characters per token; actual request tokens are shown below." bind:value={config.value.max_core_tokens} min={10000} max={100000} step={1000} format={(v) => `≈ ${v.toLocaleString()} tokens`} />
+		<SaveBar dirty={config.dirty} busy={config.busy} onsave={() => config.save('Memory schedule saved')} onreset={() => config.reset()} />
+		<div class="row">
+			<button class="btn primary" disabled={running || memory?.run.state === 'queued' || memory?.run.state === 'running'} use:focusable={{ group: 'memory-run', onSelect: runNow }}>Run now</button>
+			<span class="small muted" aria-live="polite">{memory?.run.state === 'queued' ? 'Queued — waiting for the worker' : memory?.run.state === 'running' ? 'Consolidating memories…' : `Last run: ${memory?.run.state ?? 'not yet run'}`}{memory?.run.finished_at ? ` · ${timeAgo(memory.run.finished_at)}` : ''}</span>
+		</div>
+		{#if agent.control.paused}<p class="small muted">The curator is paused. Resume it to process the queued run.</p>{/if}
+		{#if !session.settings?.agent.enabled}<p class="small muted">Enable the curator in AI and limits to process the queued run.</p>{/if}
+		{#if memory?.run.error}<p class="small muted">{memory.run.error}</p>{/if}
+		{#each memory?.run.profiles ?? [] as result}<p class="small muted">{result.profile ?? `Profile ${result.profile_id}`}: {result.status}{result.lessons !== undefined ? ` · ${result.lessons} source rules` : ''}{result.core_chars ? ` · approximately ${Math.ceil(result.core_chars / 4).toLocaleString()} core tokens` : ''}</p>{/each}
+	</div>
+</Section>
+
+<div style="height:2rem"></div>
+<Section title="Core identity, knowledge and rules" intro="For {session.profile?.name ?? 'this profile'}. This stable text goes first, followed by recent corrections, then task instructions and the current video or search.">
+	{#if memory}
+		<p class="small muted">{memory.versions} saved versions · {memory.active_rules} active source rules · {memory.corrections} corrections outside the current core{memory.core ? ` · approximately ${Math.ceil(memory.core.length / 4).toLocaleString()} core tokens` : ''}{memory.core_updated_at ? ` · updated ${timeAgo(memory.core_updated_at)}` : ''}</p>
+		{#if memory.core}
+			<p class="small faint">This version was built with a {memory.core_budget_tokens?.toLocaleString()}-token budget. Save a different budget and use Run now to rebuild it.</p>
+			{#if !memory.core_valid}<p class="small muted">A source rule changed, was disabled or deleted. This version is not being used; original active rules apply until the next successful run.</p>{/if}
+			<pre class="core-memory">{memory.core}</pre>
+		{:else}<p class="muted">No core yet. Use Run now to consolidate the current rules.</p>{/if}
+	{:else}<p class="muted">Loading memory…</p>{/if}
+</Section>
+
+<div style="height:2rem"></div>
+<Section title="AI context per request" intro="Input sizes across all profiles during the last 24 hours. The same overview is on Stats.">
+	{#if memory}<ContextOverview context={memory.context} />{/if}
+</Section>
+
+<div style="height:2rem"></div>
+<Section title="AI memory" intro="Rules learned from feedback, plus any you add yourself. Consolidated rules are represented by the core; new or edited corrections apply from the next request.">
 	<div class="add panel">
 		<TextField label="Teach the AI a rule" bind:value={draft} placeholder="e.g. Avoid videos where people shout at each other" onsubmit={add} group="lesson-add" />
 		<div class="row">
@@ -119,6 +182,7 @@
 </Section>
 
 <style>
+	.core-memory { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 0.85rem; max-height: 32rem; overflow: auto; padding: 1rem; border: 1px solid var(--line); border-radius: var(--r-md); background: rgba(0,0,0,0.15); margin-top: 0.8rem; }
 	.add {
 		display: grid;
 		gap: 0.8rem;

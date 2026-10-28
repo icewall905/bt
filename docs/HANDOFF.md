@@ -46,11 +46,35 @@ on `root@10.0.10.73:/root/compose/bt`, all four containers healthy, `https://bt.
    control hook, `purge_unwanted` sweep each downloader iteration even when paused/disabled; `sync_queue` never queues watched
    videos). Pinned saves and copies with a file request in the last 10 min are left for a later sweep.
 
+## Nightly core memory (2026-10-28)
+- Settings → AI memory controls nightly consolidation, local HH:MM/time zone, a 10k–100k estimated-token
+  slider (15k default), and Run now for all profiles independently of the nightly toggle. Scheduled runs
+  start once per local night within four hours of the selected time; pause/disable/model backoff apply.
+- Worker finishes pending feedback learning first, then consolidates active learned/manual rules per profile.
+  It batches within exact playlist/channel scopes, checks complete source-id coverage and audits shortened
+  summaries in a second model call. Raw lessons remain active/editable; `MemoryCore` retains versions and
+  source fingerprints. Any edited/disabled/deleted source invalidates the summary and falls back to raw rules.
+  New rules remain recent corrections. No database session is held during model calls.
+- Planner/judge/learner system prompts now start with the same family identity and valid profile core,
+  then recent corrections, then task instructions. The old arbitrary 40-lesson cutoff is removed.
+- `/api/agent/memory` exposes the selected profile's core and global run state; POST
+  `/api/agent/memory/run` queues manual work. The worker must be enabled/unpaused. Restarted jobs are
+  marked interrupted; original rules and completed profile versions survive.
+- `LlmRequest` records sizes/usage only (never full prompts/images), retained 30 days. Settings and Stats
+  show last-24-hour average/max input tokens, cache tokens and task averages. Server usage is preferred;
+  missing usage and core/correction breakdowns use a labeled four-characters-per-token estimate.
+- Budget is a ceiling, not padding; small rule sets yield small cores. A preservation/budget failure
+  retains the previous core/raw rules and reports the error instead of dropping preferences.
+- Changing the saved budget and using Run now rebuilds even unchanged sources; versions remember the
+  budget they used. Validation: full backend 170 passed / 4 skipped; 20 targeted browser checks passed,
+  including manual runs, disabling the schedule, Stats and settings navigation. Final bounds tests pass.
+
 ## 2026-10-27 updates
 - User-facing rename: categories are now called **playlists** everywhere visible (Settings, Home, search,
   player, agent, Stats). `/settings?tab=playlists` opens the same section; `tab=categories` links still work.
   Routes, API paths, storage and tests' internal ids are unchanged. Backend 158 passed / 4 skipped,
   svelte-check clean, production build OK, Playwright 43/43.
+
 - Storage has a persistent bulk GPU re-encoding queue (`ReencodeJob`). Saved copies stay playable; the
   original is atomically replaced only by a smaller successful output. New downloads have the same size
   safeguard. The HW Transcoding setting controls new downloads independently of bulk jobs.
