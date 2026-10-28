@@ -331,6 +331,7 @@ export interface Settings {
 		transcript_max_chars: number;
 	};
 	agent: { enabled: boolean };
+	appearance: { theme: string };
 	memory: { enabled: boolean; time: string; timezone: string; max_core_tokens: number };
 	player: { max_height: number; prefer_codec: string; autoplay_next: boolean; default_speed: number; captions_lang: string };
 	sponsorblock: { enabled: boolean; categories: Record<string, SbAction>; min_segment_s: number };

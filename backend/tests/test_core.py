@@ -372,6 +372,13 @@ def test_settings_and_agent():
     assert c.get("/api/settings").json()["throttle"]["proxy"] == "http://gluetun:8888"
     c.put("/api/settings/throttle", json={"proxy": "", "max_per_hour": 120})
 
+    assert c.get("/api/settings").json()["appearance"]["theme"] == "projector"
+    assert c.put("/api/settings/appearance", json={"theme": "forest"}).json()["theme"] == "forest"
+    assert c.get("/api/settings").json()["appearance"]["theme"] == "forest"
+    assert c.put("/api/settings/appearance", json={"theme": "does-not-exist"}).status_code == 400
+    assert c.put("/api/settings/appearance", json={"theme": []}).status_code == 400
+    assert c.put("/api/settings/appearance", json={"theme": "projector"}).status_code == 200
+
     assert c.post("/api/agent/pause").json()["paused"] is True
     assert c.get("/api/agent/status").json()["control"]["paused"] is True
     assert c.post("/api/agent/resume").json()["paused"] is False

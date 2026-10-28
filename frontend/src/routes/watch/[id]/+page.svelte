@@ -1189,7 +1189,7 @@
 		display: grid;
 		gap: 0.9rem;
 		z-index: 30;
-		background: rgba(24, 20, 56, 0.95);
+		background: var(--overlay-surface);
 	}
 	.menu {
 		position: absolute;
@@ -1202,7 +1202,7 @@
 		gap: 0.35rem;
 		padding: 1rem;
 		border-radius: var(--r-lg);
-		background: rgba(20, 17, 46, 0.95);
+		background: var(--overlay-surface-deep);
 		z-index: 40;
 		animation: rise 0.2s var(--ease);
 	}

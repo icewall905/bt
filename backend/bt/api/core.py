@@ -666,6 +666,12 @@ def write_settings(key: str, value: dict, s: Session = Depends(get_session)):
     if key not in DEFAULT_SETTINGS:
         raise HTTPException(404, "unknown settings key")
     cur = get_settings(s)[key]
+    if key == "appearance":
+        theme = value.get("theme", cur["theme"])
+        if not isinstance(theme, str) or theme not in {
+            "projector", "ocean", "forest", "ember", "midnight", "slate", "rose", "aurora", "copper", "noir", "lagoon"
+        }:
+            raise HTTPException(400, "Unknown appearance theme")
     if key == "memory":
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
         merged = {**cur, **value}

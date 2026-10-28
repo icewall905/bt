@@ -16,6 +16,7 @@
 	import CandidateDrawer from '$lib/components/CandidateDrawer.svelte';
 	import ProfilePicker from '$lib/components/ProfilePicker.svelte';
 	import Login from '$lib/components/Login.svelte';
+	import { applyTheme } from '$lib/themes';
 
 	let { children }: { children: Snippet } = $props();
 	// SvelteKit keeps a history index in history.state; back only pops entries this app created.
@@ -44,6 +45,7 @@
 		session.init();
 		agent.start();
 	});
+	$effect(() => { applyTheme(session.settings?.appearance?.theme); });
 
 	const fullscreen = $derived(page.url.pathname.startsWith('/watch/'));
 </script>

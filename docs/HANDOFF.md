@@ -46,6 +46,13 @@ on `root@10.0.10.73:/root/compose/bt`, all four containers healthy, `https://bt.
    control hook, `purge_unwanted` sweep each downloader iteration even when paused/disabled; `sync_queue` never queues watched
    videos). Pinned saves and copies with a file request in the last 10 min are left for a later sweep.
 
+## Appearance themes (2026-10-28)
+- Settings → Appearance selects the shared `appearance.theme` setting immediately. `projector` is the
+  unchanged default; ten alternative dark palettes are in `frontend/src/lib/themes.ts`. The active palette
+  is applied through CSS variables in the root layout; new devices pick it up when they load settings.
+- Theme previews are keyboard/remote accessible. Backend validates known theme IDs. Modal, keyboard,
+  toast and player overlay surfaces use theme tokens. The original token values remain the defaults.
+
 ## Nightly core memory (2026-10-28)
 - Settings → AI memory controls nightly consolidation, local HH:MM/time zone, a 10k–100k estimated-token
   slider (15k default), and Run now for all profiles independently of the nightly toggle. Scheduled runs

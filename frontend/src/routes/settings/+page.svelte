@@ -13,12 +13,14 @@
 	import ProfilesTab from '$lib/settings/ProfilesTab.svelte';
 	import KeysTab from '$lib/settings/KeysTab.svelte';
 	import StorageTab from '$lib/settings/StorageTab.svelte';
+	import AppearanceTab from '$lib/settings/AppearanceTab.svelte';
 
 	const TABS = [
 		{ key: 'categories', label: 'Playlists', icon: '🗂️', hint: 'What the AI looks for' },
 		{ key: 'memory', label: 'AI memory', icon: '🧠', hint: 'Rules learned from feedback' },
 		{ key: 'ai', label: 'AI and limits', icon: '✦', hint: 'Model, curator, pace' },
 		{ key: 'player', label: 'Player', icon: '▶', hint: 'Quality, speed, captions' },
+		{ key: 'appearance', label: 'Appearance', icon: '🎨', hint: 'Themes and colours' },
 		{ key: 'storage', label: 'Storage', icon: '💾', hint: 'Videos saved on the server' },
 		{ key: 'sponsorblock', label: 'SponsorBlock', icon: '⏭', hint: 'Skip sponsors and intros' },
 		{ key: 'extras', label: 'Extras', icon: '🧩', hint: 'Shorts, dislikes, titles' },
@@ -61,6 +63,7 @@
 					{:else if tab === 'memory'}<MemoryTab />
 					{:else if tab === 'ai'}<AiTab />
 					{:else if tab === 'player'}<PlayerTab />
+					{:else if tab === 'appearance'}<AppearanceTab />
 					{:else if tab === 'storage'}<StorageTab />
 					{:else if tab === 'sponsorblock'}<SponsorBlockTab />
 					{:else if tab === 'extras'}<ExtrasTab />

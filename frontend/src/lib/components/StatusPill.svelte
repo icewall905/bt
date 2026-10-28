@@ -152,7 +152,7 @@
 		pointer-events: none;
 		transform: translateY(-4px);
 		transition: 0.18s var(--ease);
-		background: rgba(24, 20, 56, 0.95);
+		background: var(--overlay-surface);
 		z-index: 60;
 	}
 	.wrap:hover .tip {
@@ -168,7 +168,7 @@
 		gap: 0.8rem;
 		padding: 1.1rem;
 		border-radius: var(--r-lg);
-		background: rgba(24, 20, 56, 0.96);
+		background: var(--status-pop-surface);
 		box-shadow: var(--shadow-lg);
 		z-index: 70;
 		animation: rise 0.2s var(--ease);

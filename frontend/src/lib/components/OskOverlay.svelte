@@ -43,7 +43,7 @@
 		padding: clamp(0.9rem, 1.4vw, 1.6rem);
 		display: grid;
 		gap: 0.8rem;
-		background: rgba(24, 20, 56, 0.94);
+		background: var(--keyboard-surface);
 		box-shadow: var(--shadow-lg);
 		animation: rise 0.25s var(--ease);
 	}

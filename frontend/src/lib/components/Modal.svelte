@@ -50,7 +50,7 @@
 		display: flex;
 		flex-direction: column;
 		border-radius: var(--r-lg);
-		background: linear-gradient(180deg, rgba(40, 34, 88, 0.92), rgba(22, 18, 50, 0.95));
+		background: linear-gradient(180deg, var(--modal-top), var(--modal-bottom));
 		border: 1px solid var(--line-strong);
 		box-shadow: var(--shadow-lg), 0 0 0 1px rgba(0, 0, 0, 0.3);
 		animation: pop 0.28s var(--ease-spring);

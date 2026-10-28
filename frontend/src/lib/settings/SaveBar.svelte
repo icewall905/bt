@@ -20,7 +20,7 @@
 		margin-top: 0.5rem;
 		padding: 0.7rem 0.8rem 0.7rem 1.2rem;
 		border-radius: var(--r-pill);
-		background: rgba(20, 17, 46, 0.9);
+		background: var(--savebar-surface);
 		border: 1px solid var(--line);
 		backdrop-filter: var(--blur);
 		color: var(--faint);

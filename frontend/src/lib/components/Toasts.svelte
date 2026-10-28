@@ -46,7 +46,7 @@
 		padding: 0.8rem 1rem 0.8rem 1.1rem;
 		border-radius: var(--r-md);
 		box-shadow: var(--shadow-lg);
-		background: rgba(27, 23, 64, 0.88);
+		background: var(--toast-surface);
 		animation: rise 0.3s var(--ease);
 		font-weight: 550;
 	}
