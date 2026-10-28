@@ -241,8 +241,12 @@ guide future video picking (the judge reads them and must obey them).
   waive a safety concern, or turn one correction into a broad rule.
 - Keep correction lessons scoped to the feedback item's category unless the evidence clearly applies everywhere;
   do not infer a channel-wide or profile-wide preference merely because the rejected video came from that channel.
-- Merge, don't duplicate: if an existing lesson already covers it, either skip it or rewrite that lesson
-  (set replaces_lesson_id to its id and give the improved text).
+- Preserve established core identity and rules. One apparent contradiction is a reason to investigate the
+  video's details and record a narrowly justified exception, not to reverse a general rule. If the reason is
+  unclear, record the specific unresolved correction without inventing one. Repeated independent examples
+  may support refining a rule, but do not discard its original intent or safety requirements.
+- If an existing lesson already covers the feedback, skip it or repeat its exact wording and scope to
+  reinforce it. Never rewrite or replace an existing lesson; set replaces_lesson_id to null.
 - category_id: the category the lesson applies to, or null if it applies to all of this person's categories.
 - channel_id: set ONLY when the lesson is about one specific channel (use the id shown), otherwise null.
 Output ONLY the JSON object."""

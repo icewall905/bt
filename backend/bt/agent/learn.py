@@ -119,7 +119,7 @@ def _process_profile(rt: Runtime, pid: int, batch: list[Feedback]) -> int:
     learned, trust = [], []
     with session() as s:
         existing = {le.id: le for le in s.exec(select(Lesson).where(Lesson.profile_id == pid)).all()}
-        norm_existing = {_norm(le.text): le for le in existing.values() if le.active}
+        norm_existing = {(_norm(le.text), le.category_id, le.channel_id): le for le in existing.values() if le.active}
         for x in out_lessons:
             text = str(x.get("text") or "").strip()[:500]
             if not text:
@@ -128,24 +128,20 @@ def _process_profile(rt: Runtime, pid: int, batch: list[Feedback]) -> int:
             cid = int(cid) if isinstance(cid, (int, float, str)) and str(cid).isdigit() and int(cid) in cat_ids else None
             ch = x.get("channel_id")
             ch = ch if isinstance(ch, str) and ch in channels else None
-            rid = x.get("replaces_lesson_id")
-            target = existing.get(int(rid)) if isinstance(rid, (int, float)) or (isinstance(rid, str) and rid.isdigit()) else None
-            dup = norm_existing.get(_norm(text))
-            if target is None and dup is not None:
-                target = dup
+            # Model-proposed replacements are evidence, not authority to erase a rule.
+            # Only reinforce an identical lesson in the identical scope. Explicit user
+            # edits remain authoritative through the settings API.
+            target = norm_existing.get((_norm(text), cid, ch))
             if target is not None:
-                changed = target.text != text
-                target.text, target.active, target.updated_at = text, True, now()
-                target.category_id = cid if cid is not None else target.category_id
-                target.channel_id = ch or target.channel_id
+                target.updated_at = now()
                 target.source_feedback_ids = sorted(set((target.source_feedback_ids or []) + fb_ids))
                 target.weight = round(min(3.0, (target.weight or 1.0) + 0.25), 2)
                 s.add(target)
-                learned.append((target, "updated" if changed else "reinforced"))
+                learned.append((target, "reinforced"))
             else:
                 le = Lesson(profile_id=pid, category_id=cid, channel_id=ch, text=text, source_feedback_ids=fb_ids)
                 s.add(le)
-                norm_existing[_norm(text)] = le
+                norm_existing[(_norm(text), cid, ch)] = le
                 learned.append((le, "new"))
         trust = _adjust_trust(s, pid, batch)
         for f in batch:

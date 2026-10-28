@@ -991,3 +991,26 @@ def test_structured_output_http_truncation_increases_budget(monkeypatch):
     assert all(b['reasoning_effort'] == 'medium' for b in sent)
     assert all(c['timeout_s'] == 600 for c in configs)
     assert llm._cfg() == original  # Import-specific timeout does not change worker settings.
+
+
+def test_learning_cannot_replace_existing_rule_from_one_correction():
+    cat = make_category()
+    with session() as s:
+        rule = Lesson(profile_id=cat.profile_id, text="Avoid videos with frightening pranks")
+        s.add(rule)
+        s.add(Video(id="exception01", title="A harmless surprise"))
+        fb = Feedback(profile_id=cat.profile_id, video_id="exception01", category_id=cat.id,
+                      rating=1, text="This one was harmless")
+        s.add(fb); s.commit(); s.refresh(rule); s.refresh(fb)
+        rule_id = rule.id
+    w = make_worker()
+    w.rt.llm.chat_json = lambda *args, **kwargs: {"lessons": [{
+        "text": "Allow harmless surprises in this playlist", "category_id": cat.id,
+        "channel_id": None, "replaces_lesson_id": rule_id}]}
+    learn._process_profile(w.rt, cat.profile_id, [fb])
+    with session() as s:
+        rules = s.exec(select(Lesson).where(Lesson.profile_id == cat.profile_id)).all()
+        assert len(rules) == 2
+        assert s.get(Lesson, rule_id).text == "Avoid videos with frightening pranks"
+        assert s.get(Lesson, rule_id).category_id is None
+        assert any(le.category_id == cat.id and "harmless" in le.text for le in rules)

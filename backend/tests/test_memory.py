@@ -39,7 +39,7 @@ def runtime(audit=True, edit=None, omit=False):
     calls = []
     def chat(messages, **kwargs):
         calls.append(kwargs["schema_name"])
-        if kwargs["schema_name"] == "memory_audit":
+        if kwargs["schema_name"] in ("memory_audit", "memory_continuity_audit"):
             return {"ok": audit, "issues": [] if audit else ["A safety condition was lost"]}
         rules = json.loads(messages[-1]["content"])
         ids = [i for r in rules for i in r["source_ids"]]
@@ -154,3 +154,30 @@ def test_context_metrics_use_reported_tokens_and_label_estimates():
         measured = s.exec(select(LlmRequest).where(LlmRequest.task == "verdict")).one()
         assert measured.input_tokens == 100 and measured.core_chars == 4 and measured.correction_chars == 3
         assert "private video transcript" not in json.dumps(measured.model_dump(), default=str)
+
+
+def test_revision_audit_rejects_unsafe_change_and_retains_old_core():
+    pid, _ = seed()
+    rt, _ = runtime()
+    memory.compact_profile(rt, pid, 12000)
+    with session() as s:
+        before = memory.latest(s, pid)
+        old_id, old_text = before.id, before.text
+        s.add(Lesson(profile_id=pid, text="This particular video was an exception"))
+        s.commit()
+    rt, calls = runtime()
+    original = rt.llm.chat_json
+    def reject(messages, **kwargs):
+        if kwargs["schema_name"] == "memory_continuity_audit":
+            calls.append(kwargs["schema_name"])
+            assert "previous_core" in json.loads(messages[-1]["content"])
+            return {"ok": False, "issues": ["Existing rule weakened"]}
+        return original(messages, **kwargs)
+    rt.llm.chat_json = reject
+    with pytest.raises(ValueError, match="continuity review failed"):
+        memory.compact_profile(rt, pid, 12000)
+    with session() as s:
+        assert memory.latest(s, pid).id == old_id
+        core, corrections = memory.select_memory(s, pid, memory.active(s, pid))
+        assert core == old_text and len(corrections) == 1
+    assert "memory_continuity_audit" in calls
