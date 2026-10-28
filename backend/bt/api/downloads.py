@@ -42,7 +42,7 @@ def list_downloads(s: Session = Depends(get_session)):
                                           "failed": sum(j.status == "error" for j in jobs)},
             "totals": {"used_bytes": used_bytes(s), "max_bytes": int(float(cfg.get("max_gb") or 0) * GB),
                        "counts": counts},
-            "state": get_kv("downloader_state", {"state": "offline"})}
+            "state": get_kv("downloader_state", {"state": "offline"}, s)}
 
 
 class DownloadIn(BaseModel):

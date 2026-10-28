@@ -74,11 +74,15 @@ def save_setting(key: str, value: dict, s: Session | None = None) -> None:
         _save(sess)
 
 
-def get_kv(key: str, default=None) -> dict:
+def get_kv(key: str, default=None, s: Session | None = None) -> dict:
     """Raw (non-default-merged) kv, used for agent_state / agent_control."""
-    with session() as s:
-        row = s.get(Setting, key)
+    def _load(sess):
+        row = sess.get(Setting, key)
         return row.value if row else (default if default is not None else {})
+    if s is not None:
+        return _load(s)
+    with session() as sess:
+        return _load(sess)
 
 
 def drop_kv(key: str) -> None:
@@ -106,12 +110,12 @@ def set_agent_state(**state) -> None:
     save_setting("agent_state", state)
 
 
-def get_agent_state() -> dict:
-    return get_kv("agent_state", {"state": "offline"})
+def get_agent_state(s: Session | None = None) -> dict:
+    return get_kv("agent_state", {"state": "offline"}, s)
 
 
-def get_agent_control() -> dict:
-    return get_kv("agent_control", {"paused": False, "run_now": None, "playing_until": None})
+def get_agent_control(s: Session | None = None) -> dict:
+    return get_kv("agent_control", {"paused": False, "run_now": None, "playing_until": None}, s)
 
 
 def update_agent_control(**changes) -> dict:
@@ -153,9 +157,13 @@ def log_yt_request(kind: str, origin: str = "worker", ok: bool = True, detail: s
         s.commit()
 
 
-def yt_request_counts() -> dict:
-    with session() as s:
+def yt_request_counts(s: Session | None = None) -> dict:
+    def _count(sess):
         t = now()
-        hour = s.exec(select(YtRequest).where(YtRequest.origin == "worker", YtRequest.ts >= t - timedelta(hours=1))).all()
-        day = s.exec(select(YtRequest).where(YtRequest.origin == "worker", YtRequest.ts >= t - timedelta(days=1))).all()
+        hour = sess.exec(select(YtRequest).where(YtRequest.origin == "worker", YtRequest.ts >= t - timedelta(hours=1))).all()
+        day = sess.exec(select(YtRequest).where(YtRequest.origin == "worker", YtRequest.ts >= t - timedelta(days=1))).all()
         return {"hour": len(hour), "day": len(day)}
+    if s is not None:
+        return _count(s)
+    with session() as sess:
+        return _count(sess)

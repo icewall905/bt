@@ -88,7 +88,7 @@ def _store_entries(s: Session, entries: list[dict], channel: dict | None = None)
         _upsert_channel(s, channel)
     vids = [ytdl.upsert_video(s, e) for e in entries]
     s.commit()
-    off = _offline_ids([v.id for v in vids])
+    off = _offline_ids([v.id for v in vids], s)
     return [video_out(v, offline=v.id in off) for v in vids]
 
 

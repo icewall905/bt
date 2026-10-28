@@ -14,7 +14,7 @@ from sqlmodel import Session, col, select
 from ..db import (get_agent_control, get_agent_state, get_kv, get_session, get_settings, session, update_agent_control,
                   yt_request_counts)
 from ..models import AgentEvent, Candidate, Category, Profile, now
-from .core import profile_id
+from .core import _offline_ids, profile_id
 
 router = APIRouter()
 
@@ -39,10 +39,10 @@ def _queues(s: Session, pid: Optional[int]) -> list[dict]:
 def status_payload(s: Session, pid: Optional[int] = None) -> dict:
     st = get_settings(s)["throttle"]
     return {
-        "state": get_agent_state(),
-        "downloader": get_kv("downloader_state", {"state": "offline"}),
-        "control": get_agent_control(),
-        "budget": {**yt_request_counts(), "max_hour": st["max_per_hour"], "max_day": st["max_per_day"]},
+        "state": get_agent_state(s),
+        "downloader": get_kv("downloader_state", {"state": "offline"}, s),
+        "control": get_agent_control(s),
+        "budget": {**yt_request_counts(s), "max_hour": st["max_per_hour"], "max_day": st["max_per_day"]},
         "queues": _queues(s, pid),
     }
 
@@ -144,7 +144,7 @@ def candidate_detail(cand_id: int, s: Session = Depends(get_session)):
     if not c:
         return {"detail": "not found"}
     v = s.get(Video, c.video_id)
-    out = candidate_out(c, v)
+    out = candidate_out(c, v, offline=c.video_id in _offline_ids([c.video_id], s))
     category = s.get(Category, c.category_id)
     profile = s.get(Profile, category.profile_id) if category else None
     out.update(profile_id=category.profile_id if category else None,

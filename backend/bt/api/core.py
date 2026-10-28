@@ -11,7 +11,7 @@ from sqlalchemy import update
 from sqlalchemy.orm import load_only
 
 from ..config import COOKIES_PATH, DEFAULT_SETTINGS
-from ..db import emit, get_session, get_settings, save_setting, yt_request_counts
+from ..db import emit, get_session, get_settings, save_setting, session, yt_request_counts
 from ..downloader.service import drop_unwanted
 from ..playlist import order_playlist
 from ..models import (AgentEvent, Candidate, Category, Channel, Download, Feedback, Lesson, Profile, ProfileChannel, ReencodeJob, ReencodeResult, Video,
@@ -22,24 +22,28 @@ router = APIRouter()
 
 # ---------- helpers
 
-def profile_id(x_profile_id: Optional[int] = Header(default=None), s: Session = Depends(get_session)) -> int:
+def profile_id(x_profile_id: Optional[int] = Header(default=None)) -> int:
     """Active profile from X-Profile-Id header; falls back to first profile."""
-    if x_profile_id and s.get(Profile, x_profile_id):
-        return x_profile_id
-    p = s.exec(select(Profile).order_by(Profile.id)).first()
-    if not p:
-        raise HTTPException(400, "no profiles")
-    return p.id
+    with session() as s:
+        if x_profile_id and s.get(Profile, x_profile_id):
+            return x_profile_id
+        p = s.exec(select(Profile).order_by(Profile.id)).first()
+        if not p:
+            raise HTTPException(400, "no profiles")
+        return p.id
 
 
-def _offline_ids(ids: list[str]) -> set[str]:
-    from ..db import session
+def _offline_ids(ids: list[str], s: Session | None = None) -> set[str]:
     from ..models import Download
     if not ids:
         return set()
-    with session() as s:
-        return set(s.exec(select(Download.video_id).where(col(Download.video_id).in_(ids),
-                                                          Download.status == "done")).all())
+    def _find(sess):
+        return set(sess.exec(select(Download.video_id).where(col(Download.video_id).in_(ids),
+                                                             Download.status == "done")).all())
+    if s is not None:
+        return _find(s)
+    with session() as sess:
+        return _find(sess)
 
 
 def video_out(v: Video, full: bool = False, offline: Optional[bool] = None) -> dict:
@@ -266,7 +270,7 @@ def category_feed(cid: int, status: str = "accepted", include_watched: bool = Fa
         rows = order_playlist(s.exec(q).all(), recent)[offset:offset + limit]
     else:
         rows = s.exec(q.offset(offset).limit(limit)).all()
-    off = _offline_ids([c.video_id for c, _ in rows])  # one batched lookup instead of one per card
+    off = _offline_ids([c.video_id for c, _ in rows], s)  # one batched lookup instead of one per card
     out = []
     for c, v in rows:
         d = candidate_out(c, None)
@@ -284,7 +288,7 @@ def home_feed(per_row: int = 20, pid: int = Depends(profile_id), s: Session = De
                   .where(WatchHistory.profile_id == pid, WatchHistory.finished == False,  # noqa: E712
                          WatchHistory.position_s > 15)
                   .order_by(col(WatchHistory.updated_at).desc()).limit(per_row)).all()
-    off = _offline_ids([v.id for _, v in hist])
+    off = _offline_ids([v.id for _, v in hist], s)
     if hist:
         rows.append({"kind": "continue", "title": "Continue watching", "emoji": "⏯️", "items": [
             {"video": video_out(v, offline=v.id in off), "position_s": h.position_s, "category_id": h.category_id}
@@ -300,7 +304,7 @@ def home_feed(per_row: int = 20, pid: int = Depends(profile_id), s: Session = De
     if subs:
         vids = s.exec(select(Video).where(col(Video.channel_id).in_(subs), Video.is_short == False)  # noqa: E712
                       .order_by(col(Video.published_at).desc().nulls_last()).limit(per_row)).all()
-        off = _offline_ids([v.id for v in vids])
+        off = _offline_ids([v.id for v in vids], s)
         rows.append({"kind": "subscriptions", "title": "New from subscriptions", "emoji": "📺",
                      "items": [{"video": video_out(v, offline=v.id in off)} for v in vids]})
     return rows
@@ -499,7 +503,7 @@ def add_feedback(body: FeedbackIn, pid: int = Depends(profile_id), s: Session = 
 def list_feedback(limit: int = 100, pid: int = Depends(profile_id), s: Session = Depends(get_session)):
     rows = s.exec(select(Feedback, Video).join(Video, Video.id == Feedback.video_id, isouter=True)
                   .where(Feedback.profile_id == pid).order_by(col(Feedback.created_at).desc()).limit(limit)).all()
-    off = _offline_ids([f.video_id for f, _ in rows])
+    off = _offline_ids([f.video_id for f, _ in rows], s)
     return [{**f.model_dump(), "video": video_out(v, offline=v.id in off) if v else {"id": f.video_id}}
             for f, v in rows]
 
@@ -590,7 +594,7 @@ def list_history(limit: int = 60, pid: int = Depends(profile_id), s: Session = D
     rows = s.exec(select(WatchHistory, Video).join(Video, Video.id == WatchHistory.video_id, isouter=True)
                   .where(WatchHistory.profile_id == pid).order_by(col(WatchHistory.updated_at).desc())
                   .limit(limit)).all()
-    off = _offline_ids([h.video_id for h, _ in rows])
+    off = _offline_ids([h.video_id for h, _ in rows], s)
     return [{**h.model_dump(), "video": video_out(v, offline=v.id in off) if v else {"id": h.video_id}}
             for h, v in rows]
 
@@ -827,7 +831,7 @@ def stats_page(days: int = 30, s: Session = Depends(get_session)):
             "blocked": s.exec(select(func.count()).select_from(ProfileChannel)
                                .where(ProfileChannel.blocked == True)).one(),  # noqa: E712
         },
-        "budget": {**yt_request_counts(), "max_hour": st_all["max_per_hour"], "max_day": st_all["max_per_day"]},
+        "budget": {**yt_request_counts(s), "max_hour": st_all["max_per_hour"], "max_day": st_all["max_per_day"]},
     }
 
     # ---------- daily series (last `days` days, oldest first)
