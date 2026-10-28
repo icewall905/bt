@@ -732,6 +732,8 @@ def write_settings(key: str, value: dict, s: Session = Depends(get_session)):
         except (ValueError, TypeError, KeyError, AttributeError, ZoneInfoNotFoundError):
             raise HTTPException(400, "Use a valid HH:MM time, time zone, and core budget between 10000 and 100000 estimated tokens")
     if key == "llm" and value.get("api_key") == "********":
+        if value.get("base_url", cur["base_url"]).strip().rstrip("/") != cur["base_url"].strip().rstrip("/"):
+            raise HTTPException(400, "Enter the API key for the new server")
         value["api_key"] = cur.get("api_key", "")
     if key == "throttle" and value.get("proxy") == "********":
         value["proxy"] = cur.get("proxy", "")

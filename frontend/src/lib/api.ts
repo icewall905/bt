@@ -250,6 +250,7 @@ export const api = {
 	agentRun: (category_id?: number | null) => post<AgentControl>('/agent/run', { category_id: category_id ?? null }),
 	agentPlaying: (seconds = 90) => request<AgentControl>(`/agent/playing${q({ seconds })}`, { method: 'POST', toast: false }),
 	candidate: (id: number) => get<CandidateDetail>(`/agent/candidates/${id}`),
+	llmModels: (body: { base_url?: string; api_key?: string }) => post<{ ok: boolean; models: string[]; error?: string }>('/agent/llm-models', body, { toast: false }),
 	llmTest: (body: { base_url?: string; model?: string; api_key?: string }) => post<LlmTestResult>('/agent/llm-test', body, { toast: false }),
 	proxyProviders: () => get<{ providers: ProxyProvider[] }>('/proxy/providers', { toast: false }),
 	proxyTest: (url: string) => post<ProxyTestResult>('/proxy/test', { url }, { toast: false })

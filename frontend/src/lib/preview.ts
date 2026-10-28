@@ -1,5 +1,5 @@
-// Hover previews: a silent, looping DASH playback that fades in over a thumbnail while the pointer
-// rests on it — on every video card, the candidate drawer, agent rows, stats, storage, up-next and
+// Thumbnail previews: silent, looping DASH playback while the pointer rests on a thumbnail
+// or keyboard focus is on its play target — on every video card, the candidate drawer, agent rows, stats, storage, up-next and
 // the home hero. Uses Shaka (the same DASH/proxy pipeline as the player, capped at 540p) or the
 // local copy when the video is saved offline. Media segments are never logged against the YouTube
 // budget, quick sweep-overs never start anything (350 ms arm delay), only one preview plays at a
@@ -17,10 +17,14 @@ const PREVIEW_HEIGHT = 540; // preview bits are not bits to treasure; the player
 let px = -1;
 let py = -1;
 let pointerTracked = false;
+let lastInput: 'pointer' | 'keys' = 'keys';
 function trackPointer() {
 	if (pointerTracked || typeof document === 'undefined') return;
 	pointerTracked = true;
-	document.addEventListener('pointermove', (e) => { px = e.clientX; py = e.clientY; }, { passive: true, capture: true });
+	document.addEventListener('pointermove', (e) => { px = e.clientX; py = e.clientY; lastInput = 'pointer'; }, { passive: true, capture: true });
+	document.addEventListener('keydown', (e) => {
+		if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'].includes(e.key)) lastInput = 'keys';
+	}, true);
 }
 
 function pointerOver(el: HTMLElement | null): boolean {
@@ -35,6 +39,8 @@ export interface PreviewOpts {
 	offline?: boolean;
 	/** where enter/leave are watched; default: the node itself */
 	listenOn?: HTMLElement | null;
+	/** keyboard focus target; defaults to listenOn */
+	focusOn?: HTMLElement | null;
 	/** where the video overlay is inserted; default: the node itself */
 	host?: HTMLElement | null;
 }
@@ -134,19 +140,22 @@ async function start(host: HTMLElement, opts: PreviewOpts, owner: symbol) {
 
 export function preview(node: HTMLElement, opts: PreviewOpts) {
 	trackPointer();
-	const owner = Symbol("preview action");
+	const owner = Symbol('preview action');
 	let cfg = opts;
 	let listen: HTMLElement | null = null;
+	let focus: HTMLElement | null = null;
 	let timer: number | undefined;
 
 	const canHover = () => window.matchMedia('(hover: hover)').matches;
+	const focused = () => !!focus && focus.contains(document.activeElement) && lastInput === 'keys';
+	const hovered = () => lastInput === 'pointer' && canHover() && pointerOver(listen);
 
-	function enter() {
-		if (timer !== undefined || !canHover()) return;
+	function arm() {
+		if (timer !== undefined) return;
 		timer = window.setTimeout(() => {
 			timer = undefined;
 			const host = cfg.host ?? node;
-			if (host && host.isConnected) void start(host, cfg, owner);
+			if (host && host.isConnected && (focused() || hovered())) void start(host, cfg, owner);
 		}, DELAY_MS);
 	}
 
@@ -158,43 +167,67 @@ export function preview(node: HTMLElement, opts: PreviewOpts) {
 		if (current?.owner === owner) stop(current.el);
 	}
 
+	function pointerEnter() { if (canHover()) { lastInput = 'pointer'; arm(); } }
+	function pointerLeave() { if (!focused()) leave(); }
+	function focusIn() {
+		// The navigation engine moves focus during its window-level keydown handler,
+		// before that event reaches document (and it consumes arrow key events).
+		if (document.documentElement.dataset.modality === 'keys') { lastInput = 'keys'; arm(); }
+	}
+	function focusOut(e: FocusEvent) {
+		if (focus && e.relatedTarget instanceof Node && focus.contains(e.relatedTarget)) return;
+		if (document.documentElement.dataset.modality === 'keys') { lastInput = 'keys'; leave(); }
+		else if (!hovered()) leave();
+	}
+
 	function rewire() {
-		const t = cfg.listenOn ?? node;
-		if (t === listen) return;
-		if (listen) {
-			listen.removeEventListener('pointerenter', enter);
-			listen.removeEventListener('pointerleave', leave);
+		const pointerTarget = cfg.listenOn ?? node;
+		const focusTarget = cfg.focusOn ?? pointerTarget;
+		if (pointerTarget !== listen) {
+			if (listen) {
+				listen.removeEventListener('pointerenter', pointerEnter);
+				listen.removeEventListener('pointerleave', pointerLeave);
+			}
+			listen = pointerTarget;
+			listen.addEventListener('pointerenter', pointerEnter);
+			listen.addEventListener('pointerleave', pointerLeave);
 		}
-		listen = t;
-		listen.addEventListener('pointerenter', enter);
-		listen.addEventListener('pointerleave', leave);
+		if (focusTarget !== focus) {
+			if (focus) {
+				focus.removeEventListener('focusin', focusIn);
+				focus.removeEventListener('focusout', focusOut);
+			}
+			focus = focusTarget;
+			focus.addEventListener('focusin', focusIn);
+			focus.addEventListener('focusout', focusOut);
+		}
 	}
 
 	rewire();
-	if (pointerOver(cfg.listenOn ?? node)) enter(); // pointer parked here already (e.g. after a feed reshuffle)
+	if (hovered() || focused()) arm();
 	return {
 		update(p: PreviewOpts) {
-			// Feed/row refreshes rebuild card props with the SAME video under the pointer all the time
-			// (agent 'accept' events trigger home/category reloads). Only a real target change may
-			// interrupt a running preview, otherwise hover previews tear down mid-motion forever.
+			// Keep playing across feed refreshes when the video and trigger stay the same.
 			const same = p.id === cfg.id && !!p.offline === !!cfg.offline;
 			const wasArmed = timer !== undefined || current?.owner === owner;
 			cfg = p;
 			rewire();
 			if (same) {
-				// nothing runs and nothing is armed, but the pointer is sitting on us: re-arm
-				if (!wasArmed && pointerOver(cfg.listenOn ?? node)) enter();
+				if (!wasArmed && (hovered() || focused())) arm();
 				return;
 			}
 			leave();
-			if (wasArmed || pointerOver(cfg.listenOn ?? node)) enter();
+			if (hovered() || focused()) arm();
 		},
 		destroy() {
 			leave();
 			if (listen) {
-				listen.removeEventListener('pointerenter', enter);
-				listen.removeEventListener('pointerleave', leave);
-				listen = null;
+				listen.removeEventListener('pointerenter', pointerEnter);
+				listen.removeEventListener('pointerleave', pointerLeave);
+			}
+			if (focus) {
+				focus.removeEventListener('focusin', focusIn);
+				focus.removeEventListener('focusout', focusOut);
 			}
 		},
 	};

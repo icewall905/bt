@@ -3,6 +3,7 @@
 	import { api } from '$lib/api';
 	import { focusable } from '$lib/nav';
 	import { agent, STATE_LABEL } from '$lib/stores/agent.svelte';
+	import { session } from '$lib/stores/session.svelte';
 	import type { LlmTestResult, ProxyProvider, ProxyTestResult } from '$lib/types';
 	import Section from './Section.svelte';
 	import SaveBar from './SaveBar.svelte';
@@ -13,11 +14,75 @@
 	import Slider from '$lib/components/form/Slider.svelte';
 	import Stepper from '$lib/components/form/Stepper.svelte';
 
+	let { connectionOnly = false, onConnected }: { connectionOnly?: boolean; onConnected?: () => void } = $props();
+
 	const llm = new SettingsDraft('llm');
 	const ag = new SettingsDraft('agent');
 	const th = new SettingsDraft('throttle');
 
+	const LLM_PROVIDERS = [
+		{ value: 'custom', label: 'Custom / local', url: '', hint: 'Your own OpenAI-compatible server.' },
+		{ value: 'ollama-cloud', label: 'Ollama Cloud', url: 'https://ollama.com/v1', hint: 'Ollama cloud API key.' },
+		{ value: 'openrouter', label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', hint: 'Many model providers through one API key.' },
+		{ value: 'opencode', label: 'OpenCode Zen', url: 'https://opencode.ai/inference/openai/v1', hint: 'OpenCode pay-as-you-go Console API key.' },
+		{ value: 'opencode-go', label: 'OpenCode Go', url: 'https://opencode.ai/inference/go/openai/v1', hint: 'OpenCode Go subscription API key.' },
+		{ value: 'openai', label: 'OpenAI', url: 'https://api.openai.com/v1', hint: 'OpenAI API key.' },
+		{ value: 'anthropic', label: 'Anthropic', url: 'https://api.anthropic.com/v1', hint: 'Anthropic API key; uses the OpenAI-compatible API.' },
+		{ value: 'xai', label: 'xAI', url: 'https://api.x.ai/v1', hint: 'xAI API key.' },
+		{ value: 'deepseek', label: 'DeepSeek', url: 'https://api.deepseek.com', hint: 'DeepSeek API key.' },
+		{ value: 'qwen', label: 'Qwen / Alibaba Cloud', url: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', hint: 'Model Studio key for Singapore; adjust the server URL for other regions.' },
+		{ value: 'gemini', label: 'Google Gemini', url: 'https://generativelanguage.googleapis.com/v1beta/openai', hint: 'Google AI Studio API key.' },
+		{ value: 'groq', label: 'Groq', url: 'https://api.groq.com/openai/v1', hint: 'Groq API key.' },
+		{ value: 'mistral', label: 'Mistral', url: 'https://api.mistral.ai/v1', hint: 'Mistral API key.' }
+	];
+	const normUrl = (url: string) => (url ?? '').trim().replace(/\/+$/, '');
+	const providerFor = (url: string) => LLM_PROVIDERS.find(p => p.url && p.url === normUrl(url))?.value ?? 'custom';
+	let provider = $state(providerFor(llm.value.base_url));
+	// Keep the unsaved custom connection when the user tries a preset.
+	// svelte-ignore state_referenced_locally
+	let customDraft = provider === 'custom' ? structuredClone($state.snapshot(llm.value)) : null;
+	let models = $state<string[]>([]);
+	let modelQuery = $state('');
+	let modelsLoading = $state(false);
+	let modelError = $state('');
+	let modelsLoaded = $state(false);
+	let modelRequest = 0;
+	const filteredModels = $derived(models.filter(m => m.toLowerCase().includes(modelQuery.trim().toLowerCase())).slice(0, 80));
+	function clearModels() { modelRequest++; models = []; modelQuery = ''; modelError = ''; modelsLoaded = false; modelsLoading = false; result = null; }
+	function pickLlmProvider(next: string) {
+		const currentUrl = normUrl(llm.value.base_url);
+		if (providerFor(currentUrl) === 'custom' && currentUrl) customDraft = structuredClone($state.snapshot(llm.value));
+		const option = LLM_PROVIDERS.find(p => p.value === next);
+		if (!option) return;
+		if (next === 'custom' && customDraft) llm.value = structuredClone(customDraft);
+		else if (option.url !== currentUrl) {
+			llm.value.base_url = option.url;
+			llm.value.api_key = '';
+			llm.value.model = '';
+			llm.value.vision = false;
+		}
+		clearModels();
+	}
+	function urlChanged(url: string) {
+		provider = providerFor(url);
+		if (llm.value.api_key === '********' && normUrl(url) !== normUrl(session.settings?.llm.base_url ?? '')) llm.value.api_key = '';
+		clearModels();
+	}
+	async function loadModels() {
+		const seq = ++modelRequest;
+		modelsLoading = true; modelError = ''; modelsLoaded = false; models = [];
+		try {
+			const r = await api.llmModels({ base_url: llm.value.base_url, api_key: llm.value.api_key });
+			if (seq !== modelRequest) return;
+			if (!r.ok) { modelError = r.error ?? 'Could not load models.'; return; }
+			models = r.models; modelsLoaded = true;
+		} catch (e) {
+			if (seq === modelRequest) modelError = (e as Error).message;
+		} finally { if (seq === modelRequest) modelsLoading = false; }
+	}
+
 	let testing = $state(false);
+	let connecting = $state(false);
 	let result = $state<LlmTestResult | null>(null);
 	let tookMs = $state(0);
 
@@ -33,6 +98,20 @@
 			tookMs = Math.round(performance.now() - t0);
 			testing = false;
 		}
+	}
+
+	async function connectAndContinue() {
+		if (connecting) return;
+		connecting = true;
+		const connection = JSON.stringify(llm.value);
+		try {
+			await test();
+			if (!result?.ok || JSON.stringify(llm.value) !== connection) return;
+			await llm.save('AI connection saved');
+			const savedAgent = await api.saveSettings('agent', { enabled: true });
+			if (session.settings) session.settings = { ...session.settings, agent: savedAgent };
+			onConnected?.();
+		} finally { connecting = false; }
 	}
 
 	const mins = (s: number) => (s >= 3600 ? `${(s / 3600).toFixed(s % 3600 ? 1 : 0)} h` : s >= 60 ? `${Math.round(s / 60)} min` : `${s} s`);
@@ -143,11 +222,34 @@
 
 <Section title="AI model" intro="BetterTube talks to any OpenAI-compatible server: llama.cpp, Ollama, vLLM, LM Studio or a hosted API. The model reads transcripts and comments, so a long context window helps.">
 	<div class="conn panel">
-		<TextField label="Server URL" hint="Ends in /v1 for most servers." bind:value={llm.value.base_url} placeholder="http://10.0.10.23:8080/v1" type="url" group="llm-url" id="llm-url" />
+		<Select label="Provider" hint="Choose a service or keep your own server." bind:value={provider} options={LLM_PROVIDERS} onchange={pickLlmProvider} group="llm-url" />
+		<TextField label="Server URL" hint="For local servers, use an address reachable from the BetterTube server." bind:value={llm.value.base_url} placeholder="http://10.0.10.23:8080/v1" type="url" group="llm-url" id="llm-url" oninput={urlChanged} />
 		<div class="two">
-			<TextField label="Model" hint="Pick one from the test results below, or type its name." bind:value={llm.value.model} placeholder="currentmodel" group="llm-model" />
-			<TextField label="API key" hint="Leave empty for local servers. Stored on the server, never shown again." type="password" bind:value={llm.value.api_key} placeholder="none" group="llm-model" />
+			<TextField label="Model" hint="Load the available models below, or type a model name." bind:value={llm.value.model} placeholder="currentmodel" group="llm-model" />
+			<TextField label="API key" hint="Leave empty for local servers. Stored on the server, never shown again." type="password" bind:value={llm.value.api_key} placeholder="none" group="llm-model" oninput={clearModels} />
 		</div>
+		<div class="test-row">
+			<button class="btn" disabled={modelsLoading || !llm.value.base_url} use:focusable={{ group: 'llm-test', id: 'llm-model-list', onSelect: loadModels }}>
+				{modelsLoading ? 'Loading models…' : 'Load available models'}
+			</button>
+			<p class="small faint">Uses the URL and key above without saving or making a chat request.</p>
+		</div>
+		{#if modelError}<p class="small" role="status">Could not load models: {modelError}. You can enter a model name manually.</p>{/if}
+		{#if modelsLoaded}
+			<div class="models">
+				{#if models.length}
+					<TextField label="Filter models" placeholder="Search model names" bind:value={modelQuery} group="llm-models" />
+					<p class="small muted">Choose a chat model. Showing {filteredModels.length} of {models.length}; type to narrow the list.</p>
+					<div class="model-list">
+						{#each filteredModels as m}
+							<button class="chip" class:on={m === llm.value.model} use:focusable={{ group: 'llm-models', onSelect: () => (llm.value.model = m) }}>{m}</button>
+						{/each}
+					</div>
+				{:else}
+					<p class="small muted">No models returned. Enter a model name manually.</p>
+				{/if}
+			</div>
+		{/if}
 		<div class="test-row">
 			<button class="btn primary big" disabled={testing} use:focusable={{ group: 'llm-test', id: 'llm-test', onSelect: test }}>
 				{#if testing}<span class="spin"></span> Testing…{:else}Test connection{/if}
@@ -166,9 +268,9 @@
 				{/if}
 				{#if result.models?.length}
 					<div class="models">
-						<span class="small faint">Models on this server (select to use)</span>
+						<span class="small faint">Models on this server (first 20; use Load available models to search all)</span>
 						<div class="hstack">
-							{#each result.models as m}
+							{#each result.models.slice(0, 20) as m}
 								<button class="chip" class:on={m === llm.value.model} use:focusable={{ group: 'llm-models', onSelect: () => (llm.value.model = m) }}>{m}</button>
 							{/each}
 						</div>
@@ -182,9 +284,15 @@
 		<Stepper label="Timeout" hint="How long to wait for one answer." bind:value={llm.value.timeout_s} min={30} max={1800} step={30} format={(v) => mins(v)} />
 	</div>
 	<Slider label="Creativity" hint="Temperature. Low keeps verdicts consistent; higher gives more varied search ideas." bind:value={llm.value.temperature} min={0} max={1.5} step={0.05} format={(v) => v.toFixed(2)} />
-	<SaveBar dirty={llm.dirty} busy={llm.busy} onsave={() => llm.save('AI model settings saved')} onreset={() => llm.reset()} />
+	{#if connectionOnly}
+		<p class="small muted">Local AI on this computer? Use an address the BetterTube server can reach. On Docker Desktop, host.docker.internal points to your computer; localhost points to the container. On Linux, use the AI server's LAN address.</p>
+		<button class="btn primary big" disabled={connecting || testing || llm.busy || !llm.value.base_url || !llm.value.model} use:focusable={{ group: 'llm-connect', onSelect: connectAndContinue }}>{connecting ? 'Connecting…' : 'Test, save and continue'}</button>
+	{:else}
+		<SaveBar dirty={llm.dirty} busy={llm.busy} onsave={() => llm.save('AI model settings saved')} onreset={() => { llm.reset(); provider = providerFor(llm.value.base_url); clearModels(); }} />
+	{/if}
 </Section>
 
+{#if !connectionOnly}
 <div class="gap"></div>
 
 <Section title="Curator" intro="The background worker that searches, reads and judges videos for every profile's playlists.">
@@ -264,6 +372,8 @@
 	</div>
 	<SaveBar dirty={th.dirty} busy={th.busy} onsave={saveThrottle} onreset={() => { th.reset(); parseProxy(th.value.proxy ?? ''); }} />
 </Section>
+
+{/if}
 
 <style>
 	.conn {
@@ -352,6 +462,7 @@
 	.err {
 		color: #ffc2cd;
 	}
+	.model-list { display: flex; flex-wrap: wrap; gap: 0.4rem; max-height: 18rem; overflow: auto; }
 	.models {
 		display: grid;
 		gap: 0.45rem;

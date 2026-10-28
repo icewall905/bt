@@ -211,6 +211,22 @@ def _sleep(seconds: float, abort: Callable[[], None] | None) -> None:
         time.sleep(min(0.5, left))
 
 
+def prepare_chat_body(base: str, body: dict) -> dict:
+    """Adapt optional OpenAI-compatible fields for the direct provider APIs."""
+    from urllib.parse import urlsplit
+    host = urlsplit(base).hostname
+    if host in {"api.openai.com", "api.anthropic.com"}:
+        body.pop("chat_template_kwargs", None)
+    if host == "api.openai.com":
+        if "max_tokens" in body:
+            body["max_completion_tokens"] = body.pop("max_tokens")
+        if re.match(r"^(?:gpt-[56]|o[134])(?:\b|[-.])", body.get("model", "")):
+            body.pop("temperature", None)
+    elif host == "api.anthropic.com":
+        body.pop("temperature", None)
+    return body
+
+
 def _request(messages, json_schema, max_tokens, images, temperature, schema_name, abort=None,
              no_think: bool = False, timeout_s: float | None = None,
              reasoning_effort: str | None = None) -> str:
@@ -232,6 +248,7 @@ def _request(messages, json_schema, max_tokens, images, temperature, schema_name
     if use_schema:
         body["response_format"] = {"type": "json_schema",
                                    "json_schema": {"name": schema_name, "strict": True, "schema": json_schema}}
+    prepare_chat_body(base, body)
     def send():
         from .llm_metrics import record
         response = None

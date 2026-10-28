@@ -48,7 +48,7 @@
 
 <div class="card {size}" style:--cat={color ?? 'var(--ai)'}>
 	<!-- Stretched link: the whole card is one click target; hover/focus effects key off it.
-	     Hovering also arms the silent mouse-over preview (does not start on keyboard focus). -->
+	     Hovering or keyboard focus arms the silent thumbnail preview. -->
 	<a
 		class="hit"
 		bind:this={hitEl}

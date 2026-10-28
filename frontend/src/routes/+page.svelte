@@ -21,6 +21,7 @@
 	let failed = $state(false);
 	let heroEl = $state<HTMLElement | null>(null);
 	let backdropEl = $state<HTMLElement | null>(null);
+	let heroPlayEl = $state<HTMLElement | null>(null);
 	let feedVersion = 0;
 	let loadSequence = 0;
 
@@ -146,7 +147,7 @@
 	{#if hero}
 		{@const cat = session.categoryById(hero.row.category_id)}
 		<section class="hero" style:--cat={hero.row.color ?? 'var(--ai)'} bind:this={heroEl}>
-			<div class="backdrop" aria-hidden="true" bind:this={backdropEl} use:preview={{ id: hero.video.id, listenOn: heroEl, host: backdropEl }}>
+			<div class="backdrop" aria-hidden="true" bind:this={backdropEl} use:preview={{ id: hero.video.id, offline: !!hero.video.offline, listenOn: heroEl, focusOn: heroPlayEl, host: backdropEl }}>
 				<img src={api.thumb(hero.video.id, 'maxres')} alt="" onerror={(e) => ((e.currentTarget as HTMLImageElement).src = api.thumb(hero.video.id, 'hq'))} />
 			</div>
 			<div class="hero-body">
@@ -161,7 +162,7 @@
 					<blockquote class="why">{hero.item.summary}</blockquote>
 				{/if}
 				<div class="hstack">
-					<a class="btn primary big" href="/watch/{hero.video.id}?c={hero.row.category_id}" use:focusable={{ group: 'hero', id: 'hero-play', autofocus: true }}>▶ Play</a>
+					<a class="btn primary big" bind:this={heroPlayEl} href="/watch/{hero.video.id}?c={hero.row.category_id}" use:focusable={{ group: 'hero', id: 'hero-play', autofocus: true }}>▶ Play</a>
 					<a class="btn big" href="/category/{hero.row.category_id}" use:focusable={{ group: 'hero', id: 'hero-cat' }}>All of {cat?.name ?? hero.row.title}</a>
 				</div>
 			</div>

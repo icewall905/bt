@@ -85,3 +85,44 @@ test('hover preview survives home reloads while hovering the same card', async (
 	expect(after!.src).toBe(before.src); // no teardown/re-creation under the pointer
 	expect(after!.t).toBeGreaterThan(before.t + 1.1); // kept playing the whole time, never restarted
 });
+
+test('arrow-key focus previews the top pick and thumbnail, and stops when focus moves away', async ({ page }) => {
+	// The hover-refresh test adds a higher-scored candidate; keep this clip as the hero.
+	execFileSync(join(BACKEND!, '.venv/bin/python'), ['-c', `
+from sqlmodel import delete
+from bt.db import session
+from bt.models import Candidate
+with session() as s:
+    s.exec(delete(Candidate).where(Candidate.video_id == "${NEW_ID}"))
+    s.commit()
+`], { cwd: BACKEND, env: { ...process.env, BT_DATA_DIR: DATA! } });
+	await page.addInitScript(() => localStorage.setItem('bt.profile', '1'));
+	await page.route('**/api/thumb/**', (r) =>
+		r.fulfill({ status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#ff00ff"/></svg>' }));
+	await page.goto('/');
+	const play = page.getByRole('link', { name: '▶ Play', exact: true });
+	await expect(play).toBeFocused();
+	const heroVideo = page.locator('.hero .backdrop video.bt-hover-pv');
+	await expect.poll(async () => heroVideo.evaluate((v: HTMLVideoElement) => v.currentTime).catch(() => 0), { timeout: 8000 }).toBeGreaterThan(0.4);
+	await expect(heroVideo).toHaveAttribute('src', new RegExp(`/api/video/${ID}/file`));
+
+	const card = page.locator('.card', { hasText: 'Preview hover clip' });
+	for (let i = 0; i < 6 && !(await card.locator('.hit').evaluate(el => el === document.activeElement)); i++) {
+		await page.keyboard.press('ArrowDown');
+	}
+	await expect(card.locator('.hit')).toBeFocused();
+	const cardVideo = card.locator('video.bt-hover-pv');
+	await expect.poll(async () => cardVideo.evaluate((v: HTMLVideoElement) => v.currentTime).catch(() => 0), { timeout: 8000 }).toBeGreaterThan(0.4);
+	await expect(heroVideo).toHaveCount(0);
+	await page.keyboard.press('ArrowDown'); // enter the card action strip
+	await expect(cardVideo).toHaveCount(0);
+	// Switching from pointer hover back to arrow keys must arm keyboard focus.
+	await card.hover();
+	await expect.poll(async () => cardVideo.evaluate((v: HTMLVideoElement) => v.currentTime).catch(() => 0), { timeout: 8000 }).toBeGreaterThan(0.4);
+	await page.keyboard.press('ArrowUp');
+	for (let i = 0; i < 6 && !(await card.locator('.hit').evaluate(el => el === document.activeElement)); i++) {
+		await page.keyboard.press('ArrowDown');
+	}
+	await expect(card.locator('.hit')).toBeFocused();
+	await expect.poll(async () => cardVideo.evaluate((v: HTMLVideoElement) => !v.paused).catch(() => false), { timeout: 8000 }).toBe(true);
+});

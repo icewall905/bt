@@ -3,9 +3,10 @@ import asyncio
 import json
 from datetime import timedelta
 from typing import Optional
+from urllib.parse import urlsplit
 
 import httpx
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -191,29 +192,81 @@ class LlmTest(BaseModel):
     api_key: Optional[str] = None
 
 
+def _llm_connection(body: LlmTest, cfg: dict) -> tuple[str, dict]:
+    base = (body.base_url if body.base_url is not None else cfg["base_url"]).strip().rstrip("/")
+    parsed = urlsplit(base)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise HTTPException(400, "Enter a valid server URL without credentials or query parameters")
+    saved_base = cfg["base_url"].strip().rstrip("/")
+    key = body.api_key
+    if key == "********":
+        if base != saved_base:
+            raise HTTPException(400, "Enter the API key for this server; the saved key belongs to another server")
+        key = cfg.get("api_key", "")
+    elif key is None:
+        key = cfg.get("api_key", "") if base == saved_base else ""
+    return base, {"Authorization": f"Bearer {key}"} if key else {}
+
+
+def _models_url(base: str) -> str:
+    # OpenCode serves catalogues separately from its translated OpenAI API.
+    special = {
+        "https://opencode.ai/inference/openai/v1": "https://opencode.ai/inference/v1/models",
+        "https://opencode.ai/inference/go/openai/v1": "https://opencode.ai/inference/go/v1/models",
+    }
+    return special.get(base, f"{base}/models")
+
+
+async def _list_llm_models(client: httpx.AsyncClient, base: str, headers: dict) -> list[str]:
+    anthropic = urlsplit(base).hostname == "api.anthropic.com"
+    headers = {**headers, "anthropic-version": "2023-06-01"} if anthropic else headers
+    response = await client.get(_models_url(base), headers=headers, params={"limit": 1000} if anthropic else None)
+    response.raise_for_status()
+    data = response.json()
+    entries = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        raise ValueError("The server did not return a model list")
+    return sorted({entry["id"] for entry in entries
+                   if isinstance(entry, dict) and isinstance(entry.get("id"), str) and entry["id"]})
+
+
+@router.post("/agent/llm-models")
+async def llm_models(body: LlmTest):
+    cfg = (await run_in_threadpool(get_settings))["llm"]
+    base, headers = _llm_connection(body, cfg)
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            return {"ok": True, "models": await _list_llm_models(client, base, headers)}
+    except (httpx.HTTPError, ValueError) as e:
+        return {"ok": False, "models": [], "error": str(e)}
+
+
 @router.post("/agent/llm-test")
-async def llm_test(body: LlmTest, s: Session = Depends(get_session)):
-    cfg = get_settings(s)["llm"]
-    base = (body.base_url or cfg["base_url"]).rstrip("/")
-    key = body.api_key if body.api_key and body.api_key != "********" else cfg.get("api_key")
-    headers = {"Authorization": f"Bearer {key}"} if key else {}
+async def llm_test(body: LlmTest):
+    cfg = (await run_in_threadpool(get_settings))["llm"]
+    base, headers = _llm_connection(body, cfg)
     try:
         async with httpx.AsyncClient(timeout=60) as c:
-            models = (await c.get(f"{base}/models", headers=headers)).json()
-            body = {"model": body.model or cfg["model"], "max_tokens": 20,
-                    "messages": [{"role": "user", "content": "Reply with just: pong"}]}
+            # Some compatible servers do not expose a model listing; testing chat
+            # should still work when the user enters a model manually.
+            try:
+                models = await _list_llm_models(c, base, headers)
+            except (httpx.HTTPError, ValueError):
+                models = []
+            from ..llm import prepare_chat_body
+            payload = {"model": body.model or cfg["model"], "max_tokens": 512,
+                       "messages": [{"role": "user", "content": "Reply with just: pong"}]}
             if cfg.get("thinking") is False:
-                body["chat_template_kwargs"] = {"enable_thinking": False}
-            r = await c.post(f"{base}/chat/completions", headers=headers, json=body)
+                payload["chat_template_kwargs"] = {"enable_thinking": False}
+            prepare_chat_body(base, payload)
+            r = await c.post(f"{base}/chat/completions", headers=headers, json=payload)
             r.raise_for_status()
             reply = r.json()["choices"][0]["message"].get("content") or ""
-            if not reply.strip() and "chat_template_kwargs" not in body:
-                # A thinking model spent the whole budget reasoning (empty content): retry
-                # with thinking off, the same fallback the agent worker uses.
-                body["chat_template_kwargs"] = {"enable_thinking": False}
-                r = await c.post(f"{base}/chat/completions", headers=headers, json=body)
+            if not reply.strip() and "chat_template_kwargs" not in payload and urlsplit(base).hostname not in {"api.openai.com", "api.anthropic.com"}:
+                payload["chat_template_kwargs"] = {"enable_thinking": False}
+                r = await c.post(f"{base}/chat/completions", headers=headers, json=payload)
                 r.raise_for_status()
                 reply = r.json()["choices"][0]["message"].get("content") or ""
-        return {"ok": True, "models": [m.get("id") for m in models.get("data", [])], "reply": reply}
-    except Exception as e:  # noqa: BLE001
+        return {"ok": True, "models": models, "reply": reply}
+    except Exception as e:
         return {"ok": False, "error": str(e)}
