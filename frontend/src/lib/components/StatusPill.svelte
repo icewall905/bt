@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { agent, STATE_LABEL, toneOf, cleanDetail } from '$lib/stores/agent.svelte';
 	import { session } from '$lib/stores/session.svelte';
-	import { focusable, navScope } from '$lib/nav';
+	import { focusable } from '$lib/nav';
 	import { fmtCountdown, clockTime } from '$lib/util';
 	import { api } from '$lib/api';
 	import AgentGlyph from './AgentGlyph.svelte';
@@ -10,7 +10,6 @@
 	import { fmtBytes } from '$lib/util';
 	import { preview } from '$lib/preview';
 
-	let open = $state(false);
 	const st = $derived(agent.effective);
 	const tone = $derived(toneOf(st));
 	const label = $derived(STATE_LABEL[st] ?? st);
@@ -32,48 +31,36 @@
 <div class="wrap">
 	<button
 		class="pill {tone}"
-		aria-expanded={open}
 		aria-label="AI status: {label} {extra}"
-		use:focusable={{ group: 'topbar', id: 'status-pill', scroll: 'none', onSelect: () => (open = !open) }}
+		use:focusable={{ group: 'topbar', id: 'status-pill', scroll: 'none', onSelect: () => goto('/agent') }}
 	>
 		<span class="glyph"><AgentGlyph state={st} /></span>
 		{#if downloading}<span class="dl" title="Saving offline: {dl.title ?? ''}"><ProgressRing value={dl.progress ?? 0} label="Saving offline {Math.round((dl.progress ?? 0) * 100)}%" /></span>{/if}
 	</button>
-	<div class="tip glass" role="tooltip">
-		<strong>{label}</strong>
-		{#if extra && extra !== agent.state.detail}<span class="muted">{extra}</span>{/if}
-		{#if agent.state.detail}<span>{agent.state.detail}</span>{/if}
-		{#if title}<span class="muted">🎬 {title}</span>{/if}
-		{#if downloading}<span class="muted">⤓ Saving offline {Math.round((dl.progress ?? 0) * 100)}%: {dl.title}</span>{/if}
-	</div>
-
-	{#if open}
-		<div class="pop glass" use:navScope={{ onBack: () => (open = false) }}>
-			<div class="pop-head {tone}">
-				<span class="big"><AgentGlyph state={st} size="2.2rem" /></span>
-				<div>
-					<div class="lbl">{label}</div>
-					{#if extra}<div class="muted small">{extra}</div>{/if}
-				</div>
-			</div>
-			{#if agent.state.detail && agent.state.detail !== extra}<p class="small">{agent.state.detail}</p>{/if}
-			{#if cat}<p class="small muted">Working on {cat.emoji} {cat.name}</p>{/if}
-			{#if agent.state.video_id}
-				<div class="vid">
-					<span class="pvw" use:preview={{ id: agent.state.video_id }}><img src={api.thumb(String(agent.state.video_id), 'mq')} alt="" /></span>
-					<span class="small">{title || 'Current video'}</span>
-				</div>
-			{/if}
-			{#if downloading}
-				<p class="small muted">⤓ Saving offline: {dl.title} ({Math.round((dl.progress ?? 0) * 100)}%{dl.speed ? `, ${fmtBytes(dl.speed)}/s` : ''})</p>
-			{/if}
-			{#if !agent.connected}<p class="small muted">The live connection to the server dropped. Reconnecting…</p>{/if}
-			<div class="hstack">
-				<button class="btn primary" use:focusable={{ autofocus: true, scroll: 'none', onSelect: () => ((open = false), goto('/agent')) }}>Open AI activity</button>
-				<button class="btn" use:focusable={{ scroll: 'none', onSelect: () => agent.toggle() }}>{agent.control.paused ? 'Resume AI' : 'Pause AI'}</button>
+	<div class="pop glass">
+		<div class="pop-head {tone}">
+			<span class="big"><AgentGlyph state={st} size="2.2rem" /></span>
+			<div>
+				<div class="lbl">{label}</div>
+				{#if extra}<div class="muted small">{extra}</div>{/if}
 			</div>
 		</div>
-	{/if}
+		{#if agent.state.detail && agent.state.detail !== extra}<p class="small">{agent.state.detail}</p>{/if}
+		{#if cat}<p class="small muted">Working on {cat.emoji} {cat.name}</p>{/if}
+		{#if agent.state.video_id}
+			<div class="vid">
+				<span class="pvw" use:preview={{ id: agent.state.video_id }}><img src={api.thumb(String(agent.state.video_id), 'mq')} alt="" /></span>
+				<span class="small">{title || 'Current video'}</span>
+			</div>
+		{/if}
+		{#if downloading}
+			<p class="small muted">⤓ Saving offline: {dl.title} ({Math.round((dl.progress ?? 0) * 100)}%{dl.speed ? `, ${fmtBytes(dl.speed)}/s` : ''})</p>
+		{/if}
+		{#if !agent.connected}<p class="small muted">The live connection to the server dropped. Reconnecting…</p>{/if}
+		<div class="hstack">
+			<button class="btn" use:focusable={{ scroll: 'none', onSelect: () => agent.toggle() }}>{agent.control.paused ? 'Resume AI' : 'Pause AI'}</button>
+		</div>
+	</div>
 </div>
 
 <style>
@@ -137,28 +124,6 @@
 		flex: none;
 		margin-left: -0.2rem;
 	}
-	.tip {
-		position: absolute;
-		top: calc(100% + 0.6rem);
-		right: 0;
-		width: max-content;
-		max-width: 22rem;
-		display: grid;
-		gap: 0.25rem;
-		padding: 0.7rem 0.9rem;
-		border-radius: var(--r-md);
-		font-size: 0.85rem;
-		opacity: 0;
-		pointer-events: none;
-		transform: translateY(-4px);
-		transition: 0.18s var(--ease);
-		background: var(--overlay-surface);
-		z-index: 60;
-	}
-	.wrap:hover .tip {
-		opacity: 1;
-		transform: none;
-	}
 	.pop {
 		position: absolute;
 		top: calc(100% + 0.6rem);
@@ -171,10 +136,21 @@
 		background: var(--status-pop-surface);
 		box-shadow: var(--shadow-lg);
 		z-index: 70;
-		animation: rise 0.2s var(--ease);
+		visibility: hidden;
+		opacity: 0;
+		transition: opacity 0.18s var(--ease), visibility 0.18s;
 	}
-	.wrap:has(.pop) .tip {
-		display: none;
+	.pop::before {
+		content: "";
+		position: absolute;
+		bottom: 100%;
+		right: 0;
+		width: 100%;
+		height: 0.6rem;
+	}
+	.wrap:hover .pop, .wrap:focus-within .pop {
+		visibility: visible;
+		opacity: 1;
 	}
 	.pop-head {
 		display: flex;
