@@ -20,6 +20,8 @@
 	let rows = $state<HomeRow[] | null>(null);
 	let failed = $state(false);
 	let heroEl = $state<HTMLElement | null>(null);
+	// The hero buttons sit low in the hero, so a plain scroll-into-view would leave the top pick itself hidden.
+	const showHero = () => window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
 	let backdropEl = $state<HTMLElement | null>(null);
 	let feedVersion = 0;
 	let loadSequence = 0;
@@ -161,8 +163,8 @@
 					<blockquote class="why">{hero.item.summary}</blockquote>
 				{/if}
 				<div class="hstack">
-					<a class="btn primary big" href="/watch/{hero.video.id}?c={hero.row.category_id}" use:focusable={{ group: 'hero', id: 'hero-play', autofocus: true }}>▶ Play</a>
-					<a class="btn big" href="/category/{hero.row.category_id}" use:focusable={{ group: 'hero', id: 'hero-cat' }}>All of {cat?.name ?? hero.row.title}</a>
+					<a class="btn primary big" href="/watch/{hero.video.id}?c={hero.row.category_id}" use:focusable={{ group: 'hero', id: 'hero-play', autofocus: true, scroll: 'none', onFocus: showHero }}>▶ Play</a>
+					<a class="btn big" href="/category/{hero.row.category_id}" use:focusable={{ group: 'hero', id: 'hero-cat', scroll: 'none', onFocus: showHero }}>All of {cat?.name ?? hero.row.title}</a>
 				</div>
 			</div>
 		</section>
