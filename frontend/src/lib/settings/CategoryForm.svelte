@@ -110,7 +110,7 @@ Simple, fun science for kids 5–9: Mark Rober, cat videos, experiments, space, 
 		<Stepper label="Longest video" bind:value={maxMin} min={1} max={600} step={5} format={(v) => `${v} min`} />
 		<Stepper label="Max age" hint="Only videos newer than this." bind:value={f.max_age_days} min={0} max={3650} step={30} format={(v) => (v ? `${v} days` : 'any age')} />
 		<Select label="Language" bind:value={f.language} options={LANGS} />
-		<Stepper label="Keep ready" hint="The AI stops searching when this many unwatched picks are waiting." bind:value={f.target_queue} min={3} max={200} step={1} format={(v) => `${v} videos`} />
+		<Stepper label="Keep ready" hint="The AI stops searching when this many unwatched picks are waiting." bind:value={f.target_queue} min={3} max={200} step={10} format={(v) => `${v} videos`} />
 		<Stepper label="Priority" hint="Higher gets more of the AI's time." bind:value={f.priority} min={1} max={5} step={1} format={(v) => '●'.repeat(v) + '○'.repeat(5 - v)} />
 	</div>
 

@@ -17,6 +17,8 @@
 	import ProfilePicker from '$lib/components/ProfilePicker.svelte';
 	import Login from '$lib/components/Login.svelte';
 	import { applyTheme } from '$lib/themes';
+	import PlaybackPicker from '$lib/components/PlaybackPicker.svelte';
+	import { playback } from '$lib/stores/playback.svelte';
 
 	let { children }: { children: Snippet } = $props();
 	// SvelteKit keeps a history index in history.state; back only pops entries this app created.
@@ -44,6 +46,7 @@
 	onMount(() => {
 		session.init();
 		agent.start();
+		return playback.start();
 	});
 	$effect(() => { applyTheme(session.settings?.appearance?.theme); });
 
@@ -55,7 +58,7 @@
 {:else if session.needsLogin}
 	<Login />
 {:else}
-	{#if !fullscreen}<TopBar />{/if}
+	{#if !fullscreen}<TopBar />{:else}<PlaybackPicker floating />{/if}
 	<main class:fullscreen>
 		{#key session.version}
 			{@render children()}

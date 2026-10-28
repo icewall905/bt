@@ -1,5 +1,6 @@
 // Typed API client. Every request carries X-Profile-Id; 401 anywhere triggers the login screen.
 import { toast } from './stores/toast.svelte';
+import { thumbnailPreference } from './stores/thumbnailPreference.svelte';
 import type {
 	AgentEvent,
 	AgentStatus,
@@ -179,7 +180,7 @@ export const api = {
 	captions: (id: string) => get<CaptionTrack[]>(`/video/${encodeURIComponent(id)}/captions`, { toast: false }),
 	sponsorblock: (id: string) => get<SbSegment[]>(`/video/${encodeURIComponent(id)}/sponsorblock`, { toast: false }),
 	comments: (id: string, n = 40) => get<{ author: string; text: string; likes: number }[]>(`/video/${encodeURIComponent(id)}/comments${q({ n })}`, { toast: false }),
-	thumb: (id: string, quality: 'hq' | 'mq' | 'maxres' = 'hq') => `/api/thumb/${encodeURIComponent(id)}?q=${quality}`,
+	thumb: (id: string, quality: 'hq' | 'mq' | 'maxres' = 'hq') => `/api/thumb/${encodeURIComponent(id)}?q=${quality}${thumbnailPreference.dearrow ? '&dearrow=1' : ''}`,
 
 	// offline cache (Ticket D)
 	downloads: async (): Promise<DownloadsResponse> => {
@@ -218,6 +219,8 @@ export const api = {
 	// history
 	history: (limit = 60) => get<(HistoryEntry & { video: Video | { id: string } })[]>(`/history${q({ limit })}`),
 	historyFor: (videoId: string) => get<HistoryEntry>(`/history/${encodeURIComponent(videoId)}`, { toast: false }),
+	restartHistory: (videoId: string, updated_at: string) =>
+		post<{ ok: boolean; restarted: boolean }>(`/history/${encodeURIComponent(videoId)}/restart`, { updated_at }, { toast: false }),
 	saveHistory: (h: { video_id: string; position_s: number; duration_s?: number; category_id?: number | null; finished?: boolean }, keepalive = false) =>
 		post<{ ok: boolean; finished: boolean }>('/history', h, { toast: false, keepalive }),
 	clearHistory: () => del<{ ok: boolean }>('/history'),

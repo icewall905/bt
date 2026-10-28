@@ -1,6 +1,7 @@
 // Editable copy of one settings key with dirty tracking + save.
 import { api } from '../api';
 import { session } from '../stores/session.svelte';
+import { thumbnailPreference } from '../stores/thumbnailPreference.svelte';
 import { toast } from '../stores/toast.svelte';
 import type { Settings } from '../types';
 
@@ -25,6 +26,7 @@ export class SettingsDraft<K extends keyof Omit<Settings, 'cookies'>> {
 		try {
 			const res = await api.saveSettings(this.key, $state.snapshot(this.value) as Settings[K]);
 			if (session.settings) session.settings = { ...session.settings, [this.key]: res };
+			if (this.key === 'extras') thumbnailPreference.dearrow = !!(res as Settings['extras']).dearrow_thumbnails;
 			this.value = structuredClone(res) as Settings[K];
 			this.saved = JSON.stringify(this.value);
 			toast.success(message);

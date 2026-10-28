@@ -183,6 +183,7 @@ export interface HistoryEntry {
 	position_s: number;
 	duration_s?: number;
 	finished: boolean;
+	updated_at?: string;
 	category_id?: number | null;
 }
 
@@ -336,7 +337,7 @@ export interface Settings {
 	memory: { enabled: boolean; time: string; timezone: string; max_core_tokens: number };
 	player: { max_height: number; prefer_codec: string; autoplay_next: boolean; default_speed: number; captions_lang: string };
 	sponsorblock: { enabled: boolean; categories: Record<string, SbAction>; min_segment_s: number };
-	extras: { dearrow: boolean; ryd: boolean; hide_shorts: boolean };
+	extras: { dearrow: boolean; dearrow_thumbnails: boolean; ryd: boolean; hide_shorts: boolean };
 	cache: { enabled: boolean; auto: 'accepted' | 'manual'; max_gb: number; max_height: number; rate_limit: number; min_gap_s: number; hw_transcode: boolean };
 	cookies?: { present: boolean };
 }

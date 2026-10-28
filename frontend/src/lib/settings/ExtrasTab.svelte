@@ -11,5 +11,6 @@
 	<Toggle label="Hide Shorts" hint="Keep vertical clips under a minute out of search results, feeds and the AI's picks." bind:checked={d.value.hide_shorts} />
 	<Toggle label="Show dislike counts" hint="Estimated dislikes from Return YouTube Dislike." bind:checked={d.value.ryd} />
 	<Toggle label="Better titles (DeArrow)" hint="Replace clickbait titles with community-written ones when available." bind:checked={d.value.dearrow} />
+	<Toggle label="Better thumbnails (DeArrow)" hint="Use DeArrow video frames when available; otherwise show the original thumbnail." bind:checked={d.value.dearrow_thumbnails} />
 	<SaveBar dirty={d.dirty} busy={d.busy} onsave={() => d.save('Extras saved')} onreset={() => d.reset()} />
 </Section>

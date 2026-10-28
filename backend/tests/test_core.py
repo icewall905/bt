@@ -84,6 +84,56 @@ def test_mark_seen():
         assert data.prefilter({"id": "other000000", "duration_s": 600, "title": "Other"}, cat_obj, ctx, False) is None
 
 
+def test_seen_survives_late_progress_and_explicit_replay():
+    c = client()
+    profile = c.post("/api/profiles", json={"name": "Seen and replay"}).json()
+    h = {"X-Profile-Id": str(profile["id"])}
+    vid = "lateprog001"
+    with session() as s:
+        s.add(Video(id=vid, title="Late progress", duration_s=600))
+        s.commit()
+    progress = {"video_id": vid, "position_s": 100, "duration_s": 600}
+    assert c.post("/api/history", json=progress, headers=h).status_code == 200
+    assert c.post("/api/history/seen", json={"video_id": vid}, headers=h).status_code == 200
+    assert c.post("/api/history", json=progress, headers=h).json()["finished"] is True
+    assert not any(row["kind"] == "continue" for row in c.get("/api/feed/home", headers=h).json())
+    observed = c.get(f"/api/history/{vid}", headers=h).json()
+    restarted = c.post(f"/api/history/{vid}/restart", json={"updated_at": observed["updated_at"]}, headers=h).json()
+    assert restarted["restarted"] is True
+    assert c.post("/api/history", json=progress, headers=h).json()["finished"] is False
+    assert any(row["kind"] == "continue" for row in c.get("/api/feed/home", headers=h).json())
+    # An older replay request must not undo a more recent Seen-it action.
+    c.post("/api/history/seen", json={"video_id": vid}, headers=h)
+    assert not c.post(f"/api/history/{vid}/restart", json={"updated_at": observed["updated_at"]}, headers=h).json()["restarted"]
+    assert c.get(f"/api/history/{vid}", headers=h).json()["finished"] is True
+
+
+def test_dislike_removes_continue_and_all_profile_queues():
+    c = client()
+    profile = c.post("/api/profiles", json={"name": "Dislike owner"}).json()
+    other = c.post("/api/profiles", json={"name": "Dislike other"}).json()
+    h = {"X-Profile-Id": str(profile["id"])}
+    other_h = {"X-Profile-Id": str(other["id"])}
+    categories = [c.post("/api/categories", json={"name": name}, headers=headers).json()
+                  for name, headers in (("First", h), ("Second", h), ("Other", other_h))]
+    vid = "boring00001"
+    with session() as s:
+        s.add(Video(id=vid, title="Boring", channel_id="boring-channel", duration_s=600))
+        for cat in categories:
+            s.add(Candidate(category_id=cat["id"], video_id=vid, status="accepted"))
+        s.commit()
+    c.put("/api/channels/boring-channel", json={"subscribed": True}, headers=h)
+    for headers in (h, other_h):
+        c.post("/api/history", json={"video_id": vid, "position_s": 100, "duration_s": 600}, headers=headers)
+    assert c.post("/api/feedback", json={"video_id": vid, "rating": -1, "chips": ["Boring"]}, headers=h).status_code == 200
+    for row in c.get("/api/feed/home", headers=h).json():
+        assert vid not in [item["video"]["id"] for item in row["items"]]
+    assert c.get(f"/api/feed/category/{categories[2]['id']}", headers=other_h).json()[0]["video"]["id"] == vid
+    assert any(row["kind"] == "continue" for row in c.get("/api/feed/home", headers=other_h).json())
+    c.post("/api/history", json={"video_id": vid, "position_s": 120, "duration_s": 600}, headers=h)
+    assert not any(row["kind"] == "continue" for row in c.get("/api/feed/home", headers=h).json())
+
+
 def test_playlist_pacing_is_shared_paginated_and_aware_of_current_video():
     c = client()
     profile = c.post("/api/profiles", json={"name": "Playlist pacing"}).json()

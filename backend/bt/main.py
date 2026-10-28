@@ -12,6 +12,7 @@ from .api import proxy as proxy_api
 from .api import video
 from .api import ytimport
 from .api import downloads
+from .api import playback
 from .config import STATIC_DIR
 from .db import init_db
 
@@ -29,6 +30,7 @@ app.include_router(proxy_api.router, prefix="/api")
 app.include_router(ytimport.router, prefix="/api")
 app.include_router(video.router, prefix="/api")
 app.include_router(downloads.router, prefix="/api")
+app.include_router(playback.router, prefix="/api")
 
 app.include_router(agent_api.router, prefix="/api")
 

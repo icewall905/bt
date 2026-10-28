@@ -45,7 +45,7 @@ sw.addEventListener('fetch', (event) => {
 	if (url.origin !== sw.location.origin) return;
 
 	// Thumbnails: cache-first.
-	if (url.pathname.startsWith('/api/thumb/')) {
+	if (url.pathname.startsWith('/api/thumb/') && !url.searchParams.has('dearrow')) {
 		event.respondWith(
 			(async () => {
 				const cache = await caches.open(THUMBS);

@@ -144,20 +144,27 @@ test('Home: hover reveals actions, age next to views, Seen it works', async ({ p
 	expect(feed.map((c: { video: { id: string } }) => c.video.id)).not.toContain('other000000');
 });
 
-test('Boring sends feedback the agent learns from', async ({ page, request }) => {
+test('thumbnail rating opens the full feedback dialog and sends a dislike', async ({ page, request }) => {
 	const id = await getCatId(request);
 	await freshPage(page, `/category/${id}`);
 	const card = page.locator('.cand', { hasText: 'Video that is dull' });
 	await expect(card).toBeVisible();
 	await card.hover();
-	await card.getByRole('button', { name: 'Boring' }).click();
-
+	await card.getByRole('button', { name: 'Rate video' }).click();
+	const dialog = page.getByRole('dialog', { name: 'How was it?' });
+	await expect(dialog).toBeVisible();
+	await expect(dialog.getByText('Video that is dull')).toBeVisible();
+	await dialog.getByRole('button', { name: /Not for us/ }).click();
+	await dialog.getByRole('button', { name: 'Boring', exact: true }).click();
+	await dialog.getByLabel('Anything else? (optional)').fill('Too repetitive');
+	await dialog.getByRole('button', { name: 'Send feedback' }).click();
 	await expect(card).toHaveCount(0);
-	await expect(page.getByText('Noted — the AI will avoid boring ones like this.')).toBeVisible();
+	await expect(page.getByText('Thanks. The AI will avoid videos like this.')).toBeVisible();
 	const fb = await (await request.get('/api/feedback')).json();
 	const mine = fb.find((f: { video_id: string }) => f.video_id === 'boringvid000');
 	expect(mine?.rating).toBe(-1);
 	expect(mine?.chips).toEqual(['Boring']);
+	expect(mine?.text).toBe('Too repetitive');
 	// the suggestion is dismissed, so it is gone from the feed
 	const feed = await (await request.get(`/api/feed/category/${id}`)).json();
 	expect(feed.some((c: { video: { id: string } }) => c.video.id === 'boringvid000')).toBe(false);
@@ -171,17 +178,22 @@ from bt.db import session
 from bt.models import Profile, Video, WatchHistory
 with session() as s:
     pid = s.exec(select(Profile)).first().id
-    for vid, title in [('cwseen00001', 'Continue seen example'), ('cwboring001', 'Continue boring example'), ('cwkeep00001', 'Continue keep example')]:
+    for vid, title in [('cwseen00002', 'Continue seen example'), ('cwboring002', 'Continue boring example'), ('cwkeep00002', 'Continue keep example')]:
         s.merge(Video(id=vid, title=title, duration_s=600))
         s.add(WatchHistory(profile_id=pid, video_id=vid, position_s=100, duration_s=600, category_id=${id}))
     s.commit()
 `], { cwd: BACKEND, env: { ...process.env, BT_DATA_DIR: DATA! } });
 	await freshPage(page, '/');
-	for (const [title, action] of [['Continue seen example', 'Seen it'], ['Continue boring example', 'Boring']]) {
+	for (const [title, action] of [['Continue seen example', 'Seen it'], ['Continue boring example', 'Rate video']]) {
 		const card = page.locator('.card', { hasText: title });
 		await expect(card).toBeVisible();
 		await card.hover();
 		await card.getByRole('button', { name: action }).click();
+		if (action === 'Rate video') {
+			const dialog = page.getByRole('dialog', { name: 'How was it?' });
+			await dialog.getByRole('button', { name: /Not for us/ }).click();
+			await dialog.getByRole('button', { name: 'Send feedback' }).click();
+		}
 		await expect(card).toHaveCount(0);
 	}
 	await page.reload();
@@ -189,3 +201,67 @@ with session() as s:
 	await expect(page.locator('.card', { hasText: 'Continue boring example' })).toHaveCount(0);
 	await expect(page.locator('.card', { hasText: 'Continue keep example' })).toBeVisible();
 });
+
+test('positive thumbnail feedback keeps the video and preserves its playlist', async ({ page, request }) => {
+	const id = await getCatId(request);
+	execFileSync(join(BACKEND!, '.venv/bin/python'), ['-c', `
+from bt.db import session
+from bt.models import Video, Candidate
+with session() as s:
+    s.merge(Video(id="goodvid0001", title="A good video", channel_id="UCgood", duration_s=600))
+    s.add(Candidate(category_id=${id}, video_id="goodvid0001", status="accepted", score=90))
+    s.commit()
+`], { cwd: BACKEND, env: { ...process.env, BT_DATA_DIR: DATA! } });
+	await freshPage(page, '/');
+	const card = page.locator('.card').filter({ has: page.locator('a[href^="/watch/goodvid0001"]') }).first();
+	await expect(card).toBeVisible();
+	await card.hover();
+	await card.getByRole('button', { name: 'Rate video' }).click();
+	let dialog = page.getByRole('dialog', { name: 'How was it?' });
+	await dialog.getByRole('button', { name: 'Skip' }).click();
+	await expect(card).toBeVisible();
+	await card.getByRole('button', { name: 'Rate video' }).click();
+	dialog = page.getByRole('dialog', { name: 'How was it?' });
+	await dialog.getByRole('button', { name: /Good/ }).click();
+	await dialog.getByLabel('Anything else? (optional)').fill('More like this');
+	await dialog.getByRole('button', { name: 'Send feedback' }).click();
+	await expect(dialog).toHaveCount(0);
+	await expect(card).toBeVisible();
+	const fb = await (await request.get('/api/feedback')).json();
+	const mine = fb.find((f: { video_id: string }) => f.video_id === 'goodvid0001');
+	expect(mine?.rating).toBe(1);
+	expect(mine?.category_id).toBe(id);
+	expect(mine?.text).toBe('More like this');
+});
+
+for (const [action, id, title] of [
+	['Seen it', 'cwseen00001', 'Continue seen test'],
+	['Rate video', 'cwboring001', 'Continue boring test']
+] as const) {
+	test(`Continue watching: ${action} stays removed after a reload`, async ({ page, request }) => {
+		execFileSync(join(BACKEND!, '.venv/bin/python'), ['-c', `
+from bt.db import session
+from bt.models import Video
+with session() as s:
+    s.merge(Video(id=${JSON.stringify(id)}, title=${JSON.stringify(title)}, duration_s=600))
+    s.commit()
+`], { cwd: BACKEND, env: { ...process.env, BT_DATA_DIR: DATA! } });
+		const progress = { video_id: id, position_s: 100, duration_s: 600 };
+		expect((await request.post('/api/history', { data: progress })).ok()).toBeTruthy();
+		await freshPage(page, '/');
+		const card = page.locator('.card').filter({ has: page.locator(`a[href^="/watch/${id}"]`) }).first();
+		await expect(card).toBeVisible();
+		await card.hover();
+		await card.getByRole('button', { name: action }).click();
+		if (action === 'Rate video') {
+			const dialog = page.getByRole('dialog', { name: 'How was it?' });
+			await dialog.getByRole('button', { name: /Not for us/ }).click();
+			await dialog.getByRole('button', { name: 'Send feedback' }).click();
+		}
+		await expect(card).toHaveCount(0);
+		// An old player tab may report progress after the button was clicked.
+		await request.post('/api/history', { data: progress });
+		await page.reload();
+		await expect(page.locator(`a[href^="/watch/${id}"]`)).toHaveCount(0);
+	});
+}

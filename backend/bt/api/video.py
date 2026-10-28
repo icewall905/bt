@@ -271,15 +271,43 @@ def _img_logger(kind: str):
     return cb
 
 
+# Keep community lookups bounded so a page of thumbnails cannot monopolize connections.
+_dearrow_thumb_slots = asyncio.Semaphore(8)
+
+
+async def _community_thumb(video_id: str):
+    async with _dearrow_thumb_slots:
+        branding = await extras.dearrow(video_id)
+        url = branding.get("thumb") if branding else None
+        if not url:
+            # The thumbnail service may already have a DeArrow fallback frame even
+            # when there are no community submissions in the branding API.
+            from urllib.parse import urlencode
+            url = f"{extras.DEARROW_THUMB}?" + urlencode({"videoID": video_id})
+        # The timestamp is part of the cache key, so a changed community pick is refreshed.
+        import hashlib
+        key = hashlib.sha256(url.encode()).hexdigest()[:16]
+        path = extras.THUMB_DIR / "dearrow" / f"{video_id}_{key}.jpg"
+        return await extras.cached_image(path, [url])
+
+
 @router.get("/thumb/{video_id}")
-async def thumb(video_id: str, q: str = "hq"):
+async def thumb(video_id: str, q: str = "hq", dearrow: bool = False):
     _vid(video_id)
     q = q if q in extras.THUMB_Q else "hq"
+    if dearrow:
+        try:
+            # A missing or slow community service must not hold the page indefinitely.
+            replacement = await asyncio.wait_for(_community_thumb(video_id), timeout=3.0)
+        except Exception:
+            replacement = None
+        if replacement:
+            return FileResponse(replacement, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
     p = await extras.cached_image(extras.thumb_path(video_id, q), extras.thumb_urls(video_id, q),
                                   _img_logger("thumb"))
     if not p:
         raise HTTPException(404, "no thumbnail")
-    return FileResponse(p, media_type="image/jpeg", headers=IMG_CACHE)
+    return FileResponse(p, media_type="image/jpeg", headers={"Cache-Control": "no-store"} if dearrow else IMG_CACHE)
 
 
 # ---------------------------------------------------------------- channels

@@ -1,13 +1,14 @@
 """Profiles, categories, feeds, channels, feedback, lessons, history, settings."""
 import json
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlmodel import Session, col, delete, func, select
 from sqlalchemy import update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import load_only
 
 from ..config import COOKIES_PATH, DEFAULT_SETTINGS
@@ -267,7 +268,7 @@ def category_feed(cid: int, status: str = "accepted", include_watched: bool = Fa
                 recent = [current]
                 q = q.where(Candidate.video_id != after)
         # Order the full eligible queue before slicing so pages and home agree.
-        rows = order_playlist(s.exec(q).all(), recent)[offset:offset + limit]
+        rows = order_playlist(s.exec(q).all(), recent, limit=max(0, offset + limit))[offset:offset + limit]
     else:
         rows = s.exec(q.offset(offset).limit(limit)).all()
     off = _offline_ids([c.video_id for c, _ in rows], s)  # one batched lookup instead of one per card
@@ -283,14 +284,14 @@ def category_feed(cid: int, status: str = "accepted", include_watched: bool = Fa
 @router.get("/feed/home")
 def home_feed(per_row: int = 20, pid: int = Depends(profile_id), s: Session = Depends(get_session)):
     rows = []
+    disliked = select(Feedback.video_id).where(
+        Feedback.profile_id == pid, Feedback.rating < 0,
+        col(Feedback.id).in_(select(func.max(Feedback.id)).where(
+            Feedback.profile_id == pid, Feedback.rating != 0).group_by(Feedback.video_id)))
     # Continue watching
     hist = s.exec(select(WatchHistory, Video).join(Video, Video.id == WatchHistory.video_id)
                   .where(WatchHistory.profile_id == pid, WatchHistory.finished == False,  # noqa: E712
-                         WatchHistory.position_s > 15,
-                         ~col(WatchHistory.video_id).in_(
-                             select(Feedback.video_id).where(Feedback.profile_id == pid, Feedback.rating < 0,
-                                 col(Feedback.id).in_(select(func.max(Feedback.id)).where(
-                                     Feedback.profile_id == pid, Feedback.rating != 0).group_by(Feedback.video_id)))))
+                         WatchHistory.position_s > 15, col(WatchHistory.video_id).not_in(disliked))
                   .order_by(col(WatchHistory.updated_at).desc()).limit(per_row)).all()
     off = _offline_ids([v.id for _, v in hist], s)
     if hist:
@@ -306,7 +307,9 @@ def home_feed(per_row: int = 20, pid: int = Depends(profile_id), s: Session = De
     subs = s.exec(select(ProfileChannel.channel_id).where(ProfileChannel.profile_id == pid,
                                                            ProfileChannel.subscribed == True)).all()  # noqa: E712
     if subs:
-        vids = s.exec(select(Video).where(col(Video.channel_id).in_(subs), Video.is_short == False)  # noqa: E712
+        watched = select(WatchHistory.video_id).where(WatchHistory.profile_id == pid, WatchHistory.finished == True)  # noqa: E712
+        vids = s.exec(select(Video).where(col(Video.channel_id).in_(subs), Video.is_short == False,  # noqa: E712
+                                          col(Video.id).not_in(watched), col(Video.id).not_in(disliked))
                       .order_by(col(Video.published_at).desc().nulls_last()).limit(per_row)).all()
         off = _offline_ids([v.id for v in vids], s)
         rows.append({"kind": "subscriptions", "title": "New from subscriptions", "emoji": "📺",
@@ -471,34 +474,36 @@ class FeedbackIn(BaseModel):
 
 @router.post("/feedback")
 def add_feedback(body: FeedbackIn, pid: int = Depends(profile_id), s: Session = Depends(get_session)):
+    if body.category_id is not None:
+        _own_category(s, pid, body.category_id)
     f = Feedback(**body.model_dump(), profile_id=pid)
     s.add(f)
     # A dislike removes the candidate from the category feed right away and flips it to rejected,
     # so the judge/planner see it (with this reason) as a video this family does not want again.
     rejected = None
     reason = ", ".join(x for x in [", ".join(body.chips), body.text.strip()] if x)
-    if body.rating < 0 and body.category_id:
-        c = s.exec(select(Candidate).where(Candidate.category_id == body.category_id,
-                                           Candidate.video_id == body.video_id)).first()
-        if c:
+    if body.rating < 0:
+        owned_categories = select(Category.id).where(Category.profile_id == pid)
+        candidates = s.exec(select(Candidate).where(col(Candidate.category_id).in_(owned_categories),
+                                                     Candidate.video_id == body.video_id)).all()
+        for c in candidates:
             c.dismissed = True
             c.status = "rejected"
             c.judged_at = now()
             if reason:
                 c.red_flags = [*(c.red_flags or []), f"Family: {reason}"][:8]
             s.add(c)
-            rejected = c
+            if c.category_id == body.category_id:
+                rejected = c
     s.commit()
     s.refresh(f)
     if rejected is not None:
         v = s.get(Video, body.video_id)
-        cat = s.get(Category, body.category_id)
         emit("reject", f"🚫 You rejected: {v.title if v else body.video_id}" + (f" — {reason}" if reason else ""),
              "info", profile_id=pid, category_id=body.category_id, video_id=body.video_id,
              payload={"candidate_id": rejected.id, "by": "family"})
-        # A rejected video must not be downloaded: pull it from the queue (this also aborts a running
-        # download within ~2 s) and delete its saved copy. Pinned saves stay; the downloader sweep
-        # removes copies that were being watched at this moment.
+    if body.rating < 0:
+        # Pinned, in-use or still-wanted copies are preserved by drop_unwanted.
         drop_unwanted(s, body.video_id)
     return f
 
@@ -587,16 +592,28 @@ class HistoryIn(BaseModel):
 
 @router.post("/history")
 def save_history(body: HistoryIn, pid: int = Depends(profile_id), s: Session = Depends(get_session)):
-    h = s.exec(select(WatchHistory).where(WatchHistory.profile_id == pid,
-                                          WatchHistory.video_id == body.video_id)).first()
-    h = h or WatchHistory(profile_id=pid, video_id=body.video_id)
-    was_finished = h.finished
-    h.position_s, h.duration_s = body.position_s, body.duration_s or h.duration_s
-    h.category_id = body.category_id or h.category_id
-    h.finished = was_finished or body.finished or (h.duration_s > 0 and body.position_s >= h.duration_s * 0.92)
-    h.updated_at = now()
-    s.add(h)
+    was_finished = s.exec(select(WatchHistory.finished).where(WatchHistory.profile_id == pid,
+                                                              WatchHistory.video_id == body.video_id)).first()
+    duration = body.duration_s or 0
+    finished = body.finished or (duration > 0 and body.position_s >= duration * 0.92)
+    effective_duration = body.duration_s or WatchHistory.duration_s
+    stmt = sqlite_insert(WatchHistory).values(profile_id=pid, video_id=body.video_id,
+        position_s=body.position_s, duration_s=duration, category_id=body.category_id,
+        finished=finished, updated_at=now())
+    # Progress requests can arrive after "Seen it". Never let them undo a
+    # completed history entry; only an explicit replay can reopen one.
+    stmt = stmt.on_conflict_do_update(index_elements=["profile_id", "video_id"], set_={
+        "position_s": body.position_s,
+        "duration_s": body.duration_s or WatchHistory.duration_s,
+        "category_id": body.category_id or WatchHistory.category_id,
+        "finished": WatchHistory.finished | finished |
+                    ((effective_duration > 0) & (body.position_s >= effective_duration * 0.92)),
+        "updated_at": now(),
+    })
+    s.execute(stmt)
     s.commit()
+    h = s.exec(select(WatchHistory).where(WatchHistory.profile_id == pid,
+                                          WatchHistory.video_id == body.video_id)).one()
     if h.finished and not was_finished:
         drop_unwanted(s, body.video_id)  # watched to the end: the local copy is not needed anymore
     return {"ok": True, "finished": h.finished}
@@ -627,6 +644,23 @@ def clear_history(pid: int = Depends(profile_id), s: Session = Depends(get_sessi
 
 class SeenIn(BaseModel):
     video_id: str
+
+
+class RestartHistoryIn(BaseModel):
+    updated_at: datetime
+
+
+@router.post("/history/{video_id}/restart")
+def restart_history(video_id: str, body: RestartHistoryIn, pid: int = Depends(profile_id),
+                    s: Session = Depends(get_session)):
+    # Only reopen the exact finished entry observed at the start of this replay.
+    # A later Seen-it action must win over an already-started playback request.
+    changed = s.execute(update(WatchHistory).where(
+        WatchHistory.profile_id == pid, WatchHistory.video_id == video_id,
+        WatchHistory.finished == True, WatchHistory.updated_at == body.updated_at,  # noqa: E712
+    ).values(finished=False, position_s=0, updated_at=now())).rowcount
+    s.commit()
+    return {"ok": True, "restarted": bool(changed)}
 
 
 @router.post("/history/seen")

@@ -1,5 +1,6 @@
 // App-wide session: auth, profiles, active profile, cached categories + settings.
 import { api, PROFILE_KEY, onUnauthorized } from '../api';
+import { thumbnailPreference } from './thumbnailPreference.svelte';
 import type { Category, Profile, Settings } from '../types';
 
 class Session {
@@ -75,6 +76,7 @@ class Session {
 	async loadSettings() {
 		try {
 			this.settings = await api.settings();
+			thumbnailPreference.dearrow = !!this.settings.extras.dearrow_thumbnails;
 		} catch {
 			/* keep previous */
 		}

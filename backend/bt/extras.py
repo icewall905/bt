@@ -155,7 +155,8 @@ IMAGE_HOSTS = ("ytimg.com",) + AVATAR_HOSTS
 def image_host_allowed(url: str) -> bool:
     p = up.urlparse(url or "")
     host = (p.hostname or "").lower()
-    return p.scheme == "https" and any(host == h or host.endswith("." + h) for h in IMAGE_HOSTS)
+    return p.scheme == "https" and (host == "dearrow-thumb.ajay.app" or
+                                    any(host == h or host.endswith("." + h) for h in IMAGE_HOSTS))
 
 
 async def _fetch_image(url: str) -> bytes | None:

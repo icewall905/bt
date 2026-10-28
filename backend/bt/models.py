@@ -249,3 +249,12 @@ class ReencodeResult(SQLModel, table=True):
     original_bytes: int = 0
     output_bytes: int = 0
     created_at: datetime = Field(default_factory=now, index=True)
+
+
+class PlaybackTarget(SQLModel, table=True):
+    id: str = Field(primary_key=True)
+    name: str
+    token_hash: str
+    last_seen: float = 0
+    state: dict = J({})
+    command: dict = J({})

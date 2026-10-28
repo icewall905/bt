@@ -56,3 +56,24 @@ def test_known_runtime_buckets_mix_gently_and_unknown_duration_is_neutral():
                                row("c", duration=120, score=88)])) == ["a", "b", "c"]
     assert ids(order_playlist([row("a", duration=120, score=95), row("b", duration=180, score=94),
                                row("c", duration=600, score=85)])) == ["a", "b", "c"]
+
+
+def test_prefix_matches_full_order_and_reference():
+    from bt.playlist import _similarity
+    rows = [row(str(i), ["space", "music", "animals"][i % 3],
+                score=95 - i % 20, channel=str(i % 4),
+                source="search: Space" if i % 2 else "", title=f"Building project {i % 5}",
+                duration=[0, 120, 600, 1800][i % 4]) for i in range(60)]
+    for recent in ([], [row("current", "space")]):
+        remaining, history, expected = list(rows), list(recent), []
+        while remaining:
+            def value(r):
+                penalty = sum(_similarity(r, prev) * (0.5 ** i)
+                              for i, prev in enumerate(reversed(history[-3:])))
+                return (r[0].score if r[0].score is not None else 65) - min(28, penalty)
+            chosen = remaining.pop(max(range(len(remaining)), key=lambda i: value(remaining[i])))
+            expected.append(chosen)
+            history.append(chosen)
+        assert ids(order_playlist(rows, recent)) == ids(expected)
+        for limit in (0, 1, 24, 40, 100):
+            assert ids(order_playlist(rows, recent, limit=limit)) == ids(expected[:limit])

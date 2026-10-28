@@ -83,14 +83,11 @@
 		}
 	}
 
-	async function markBoring(c: Candidate) {
-		try {
-			await api.feedback({ video_id: c.video.id, category_id: id, rating: -1, chips: ['Boring'] });
-			items = (items ?? []).filter((x) => x.id !== c.id);
-			toast.success('Noted — the AI will avoid boring ones like this.');
-		} catch {
-			toast.error('Could not send that.');
-		}
+	function rateVideo(c: Candidate) {
+		dialogs.openFeedback({
+			videoId: c.video.id, categoryId: id, title: isVideo(c.video) ? c.video.title : undefined,
+			onDone: (rating) => { if (rating < 0) items = (items ?? []).filter((x) => x.video.id !== c.video.id); }
+		});
 	}
 
 	const working = $derived(agent.state.category_id === id && agent.effective !== 'paused' && agent.effective !== 'offline');
@@ -187,8 +184,8 @@
 										</button>
 									{/if}
 									{#if c.status === 'accepted'}
-										<button class="btn why" use:focusable={{ group: `cand-acts-${c.id}`, onSelect: () => markBoring(c) }}>
-											Boring
+										<button class="btn why" aria-label="Rate video" use:focusable={{ group: `cand-acts-${c.id}`, onSelect: () => rateVideo(c) }}>
+											👍 👎
 										</button>
 									{/if}
 									{#if c.status === 'accepted' && isVideo(c.video) && c.video.channel_id}

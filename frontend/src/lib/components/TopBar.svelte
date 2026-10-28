@@ -4,6 +4,7 @@
 	import { session } from '$lib/stores/session.svelte';
 	import { focusable } from '$lib/nav';
 	import StatusPill from './StatusPill.svelte';
+	import PlaybackPicker from './PlaybackPicker.svelte';
 	import Avatar from './Avatar.svelte';
 	import Icon from './Icon.svelte';
 	import ProfilePicker from './ProfilePicker.svelte';
@@ -37,6 +38,7 @@
 	</nav>
 
 	<div class="right">
+		<PlaybackPicker />
 		<StatusPill />
 		<button
 			class="btn pause"

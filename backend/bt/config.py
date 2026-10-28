@@ -71,7 +71,7 @@ DEFAULT_SETTINGS: dict = {
         },
         "min_segment_s": 1.0,
     },
-    "extras": {"dearrow": False, "ryd": True, "hide_shorts": True},
+    "extras": {"dearrow": False, "dearrow_thumbnails": False, "ryd": True, "hide_shorts": True},
     "cache": {
         "enabled": True,
         "auto": "accepted",  # accepted | manual

@@ -39,13 +39,21 @@ def _duration_bucket(seconds: int) -> str:
     return "short" if seconds < 300 else "medium" if seconds < 1200 else "long"
 
 
-def _similarity(left: Row, right: Row) -> float:
+def _similarity(left: Row, right: Row, features=None) -> float:
     c, v = left
     other, ov = right
-    tags, otags = _tags(c), _tags(other)
+    if features is None:
+        features = {}
+    def feature(c, v):
+        key = id(c)
+        if key not in features:
+            features[key] = (_tags(c), _words(v.title))
+        return features[key]
+    tags, words = feature(c, v)
+    otags, owords = feature(other, ov)
     topic = 22.0 if tags and otags and tags[0] == otags[0] else 0.0
     topic = max(topic, 20 * _overlap(set(tags), set(otags)),
-                20 * _overlap(_words(v.title), _words(ov.title)))
+                20 * _overlap(words, owords))
     # Search batches often share a subject even when legacy tags are sparse.
     if c.source.startswith("search:") and c.source.casefold() == other.source.casefold():
         topic = max(topic, 12.0)
@@ -56,7 +64,8 @@ def _similarity(left: Row, right: Row) -> float:
     return topic + channel + pacing
 
 
-def order_playlist(rows: list[Row], recent: list[Row] | None = None) -> list[Row]:
+def order_playlist(rows: list[Row], recent: list[Row] | None = None,
+                   limit: int | None = None) -> list[Row]:
     """Greedily space similar picks while retaining a strong quality preference.
 
     Input is score/recency/id sorted and breaks ties deterministically. Penalise
@@ -67,9 +76,18 @@ def order_playlist(rows: list[Row], recent: list[Row] | None = None) -> list[Row
     remaining = list(rows)
     history = list(recent or [])[-3:]
     ordered = []
-    while remaining:
+    features = {}
+    similarities = {}
+
+    def similarity(left, right):
+        key = (id(left[0]), id(right[0]))
+        if key not in similarities:
+            similarities[key] = _similarity(left, right, features)
+        return similarities[key]
+
+    while remaining and (limit is None or len(ordered) < limit):
         def value(row: Row) -> float:
-            penalty = sum(_similarity(row, prev) * (0.5 ** i)
+            penalty = sum(similarity(row, prev) * (0.5 ** i)
                           for i, prev in enumerate(reversed(history[-3:])))
             return (row[0].score if row[0].score is not None else 65) - min(28, penalty)
 

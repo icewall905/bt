@@ -4,6 +4,7 @@
 	import { api } from '$lib/api';
 	import { agent } from '$lib/stores/agent.svelte';
 	import { session } from '$lib/stores/session.svelte';
+	import { dialogs } from '$lib/stores/dialogs.svelte';
 	import { focusable } from '$lib/nav';
 	import { fmtDuration, isVideo } from '$lib/util';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -20,13 +21,20 @@
 	let failed = $state(false);
 	let heroEl = $state<HTMLElement | null>(null);
 	let backdropEl = $state<HTMLElement | null>(null);
+	let feedVersion = 0;
+	let loadSequence = 0;
 
 	async function load() {
+		const version = feedVersion;
+		const sequence = ++loadSequence;
 		try {
-			rows = await api.home(24);
+			const result = await api.home(24);
+			if (version !== feedVersion || sequence !== loadSequence) return;
+			rows = result;
 			failed = false;
 			warmLikely();
 		} catch {
+			if (version !== feedVersion || sequence !== loadSequence) return;
 			failed = true;
 			rows = rows ?? [];
 		}
@@ -57,8 +65,9 @@
 	}
 
 	function dropFromRows(pred: (v: Video) => boolean) {
+		feedVersion++;
 		rows = (rows ?? []).map((r) =>
-			r.kind === 'subscriptions' ? r : { ...r, items: r.items.filter((it) => !it.video || !pred(it.video)) });
+			({ ...r, items: r.items.filter((it) => !it.video || !pred(it.video)) }));
 	}
 
 	async function markSeen(v: Video) {
@@ -82,14 +91,11 @@
 		}
 	}
 
-	async function boring(v: Video, categoryId?: number) {
-		try {
-			await api.feedback({ video_id: v.id, category_id: categoryId ?? null, rating: -1, chips: ['Boring'] });
-			dropFromRows((x) => x.id === v.id);
-			toast.success('Noted — the AI will avoid boring ones like this.');
-		} catch {
-			toast.error('Could not send that.');
-		}
+	function rateVideo(v: Video, categoryId?: number) {
+		dialogs.openFeedback({
+			videoId: v.id, categoryId: categoryId ?? null, title: v.title,
+			onDone: (rating) => { if (rating < 0) dropFromRows((x) => x.id === v.id); }
+		});
 	}
 
 	onMount(() => {
@@ -212,8 +218,8 @@
 								<button class="btn why" use:focusable={{ group: `cw-acts-${v.id}`, onSelect: () => markSeen(v) }}>
 									Seen it
 								</button>
-								<button class="btn why" use:focusable={{ group: `cw-acts-${v.id}`, onSelect: () => boring(v, it.category_id ?? undefined) }}>
-									Boring
+								<button class="btn why" aria-label="Rate video" use:focusable={{ group: `cw-acts-${v.id}`, onSelect: () => rateVideo(v, it.category_id ?? undefined) }}>
+									👍 👎
 								</button>
 								{#if v.channel_id}
 									<button class="btn why" use:focusable={{ group: `cw-acts-${v.id}`, onSelect: () => dislikeChannel(v) }}>
@@ -249,8 +255,8 @@
 									<button class="btn why" use:focusable={{ group: `row-acts-${v.id}`, onSelect: () => markSeen(v) }}>
 										Seen it
 									</button>
-									<button class="btn why" use:focusable={{ group: `row-acts-${v.id}`, onSelect: () => boring(v, it.category_id ?? undefined) }}>
-										Boring
+									<button class="btn why" aria-label="Rate video" use:focusable={{ group: `row-acts-${v.id}`, onSelect: () => rateVideo(v, it.category_id ?? undefined) }}>
+										👍 👎
 									</button>
 									{#if v.channel_id}
 										<button class="btn why" use:focusable={{ group: `row-acts-${v.id}`, onSelect: () => dislikeChannel(v) }}>

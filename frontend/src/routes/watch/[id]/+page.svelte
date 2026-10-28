@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api';
 	import { session } from '$lib/stores/session.svelte';
+	import { playback } from '$lib/stores/playback.svelte';
 	import { preview } from '$lib/preview';
 	import { dialogs } from '$lib/stores/dialogs.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -18,6 +19,7 @@
 
 	// ---------- route
 	const id = $derived(page.params.id ?? '');
+	const castCommand = $derived(page.url.searchParams.get('cast'));
 	const catId = $derived(page.url.searchParams.get('c') ? Number(page.url.searchParams.get('c')) : null);
 
 	// ---------- media state
@@ -133,11 +135,18 @@
 		if (seq !== loadSeq) return;
 		if (!offlineOk && !(await stream(vid, start, seq))) return;
 		if (seq !== loadSeq) return;
+		if (h?.finished && h.updated_at) {
+			await api.restartHistory(vid, h.updated_at).catch(() => {});
+			if (seq !== loadSeq) return;
+		}
 		loadError = ''; // it plays: never show the error card over it
 		video.playbackRate = speed;
 		loading = false;
 		if (slowTimer) clearTimeout(slowTimer);
-		video.play().catch(() => (paused = true));
+		video.play().then(() => { if (playback.receiver) playback.error = ''; }).catch(() => {
+			paused = true;
+			if (playback.receiver) playback.error = 'Autoplay was blocked. Press Play on this screen, or allow autoplay for BetterTube.';
+		});
 		poke();
 
 		// Side data, all optional.
@@ -387,7 +396,11 @@
 		video.currentTime = clamp(t, 0, duration || t);
 		time = video.currentTime;
 	}
-	function replay() {
+	async function replay() {
+		const vid = id;
+		const h = await api.historyFor(vid).catch(() => null);
+		if (h?.finished && h.updated_at) await api.restartHistory(vid, h.updated_at).catch(() => {});
+		if (vid !== id) return;
 		ended = false;
 		countdown = null;
 		seekTo(0);
@@ -580,22 +593,27 @@
 	}
 
 	// ---------- lifecycle
+	let skipExitHistory = false;
+	const beforeCast = () => { saveHistory(true); skipExitHistory = true; };
 	let offKeys: (() => void) | null = null;
 	const onVis = () => document.visibilityState === 'hidden' && saveHistory(true);
 	onMount(() => {
 		offKeys = nav.handleKeys(onKey);
 		document.addEventListener('visibilitychange', onVis);
 		window.addEventListener('pagehide', onVis);
+		window.addEventListener('bt:before-cast', beforeCast);
 	});
 	$effect(() => {
 		const v = id;
-		if (v && video) load(v);
+		void castCommand; // A new cast of the same video must also reload the player.
+		if (v && video) { skipExitHistory = false; load(v); }
 	});
 	onDestroy(() => {
-		saveHistory(true);
+		if (!skipExitHistory) saveHistory(true);
 		offKeys?.();
 		document.removeEventListener('visibilitychange', onVis);
 		window.removeEventListener('pagehide', onVis);
+		window.removeEventListener('bt:before-cast', beforeCast);
 		if (hideTimer) clearTimeout(hideTimer);
 		if (cdTimer) clearInterval(cdTimer);
 		if (slowTimer) clearTimeout(slowTimer);
