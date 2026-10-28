@@ -36,7 +36,7 @@
 	{/if}
 	<h3>Current core memory by profile</h3>
 	<p class="small muted">Approximate text tokens. A stored core whose sources changed is excluded from active core use; current source rules apply until the next successful consolidation. The configured budget is {context.configured_core_budget_tokens.toLocaleString()} tokens per profile.</p>
-	<div class="scroll"><table class="profile-context"><thead><tr><th>Profile</th><th>Core in use</th><th>Core size / budget</th><th>Raw source rules</th><th>Outside core</th><th>Active rules</th></tr></thead><tbody>
+	<div class="scroll"><table class="profile-context"><thead><tr><th>Profile</th><th>Core in use</th><th>Core size / budget</th><th>Raw source rules</th><th>Recent corrections / reviews</th><th>Active rules</th></tr></thead><tbody>
 		{#each context.memory_profiles as profile}<tr><th scope="row">{profile.profile}</th><td>{profile.core_valid ? 'Yes' : profile.stored_core_tokens_estimate ? 'Needs rebuild' : 'Not built'}</td><td>{profile.core_tokens_estimate.toLocaleString()} / {context.configured_core_budget_tokens.toLocaleString()}<div class="budget-track" aria-hidden="true"><div style:width={`${Math.min(100, profile.core_tokens_estimate / context.configured_core_budget_tokens * 100)}%`}></div></div></td><td>≈ {profile.raw_rule_tokens_estimate.toLocaleString()}</td><td>≈ {profile.correction_tokens_estimate.toLocaleString()} tokens · {profile.corrections} rules</td><td>{profile.active_rules}</td></tr>{/each}
 	</tbody></table></div>
 	<p class="small muted">Active rule strength: {Object.entries(context.rule_strengths).map(([kind, count]) => `${count} ${kind}`).join(' · ')}. {context.revisions_24h} automatic rule refinements in the last 24 hours.</p>

@@ -73,7 +73,11 @@ def select_memory(s, pid, lessons):
     current = {str(le.id): fingerprint(le) for le in active(s, pid)}
     if not sources_valid(core, current):
         return "", lessons
-    return core.text, [le for le in lessons if str(le.id) not in core.sources]
+    reviewed = set(s.exec(select(LessonEvidenceState.lesson_id).where(
+        LessonEvidenceState.profile_id == pid, LessonEvidenceState.updated_at > core.created_at)).all())
+    # Keep the cached prefix stable, but expose newer confidence reviews alongside
+    # ordinary corrections so the judge need not wait until tonight to see them.
+    return core.text, [le for le in lessons if str(le.id) not in core.sources or le.id in reviewed]
 
 
 def apply(messages, core, corrections=""):

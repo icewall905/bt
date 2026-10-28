@@ -104,7 +104,7 @@
 <div style="height:2rem"></div>
 <Section title="Core identity, knowledge and rules" intro="For {session.profile?.name ?? 'this profile'}. This stable text goes first, followed by recent corrections, then task instructions and the current video or search.">
 	{#if memory}
-		<p class="small muted">{memory.versions} saved versions · {memory.active_rules} active source rules · {memory.corrections} corrections outside the current core{memory.core ? ` · approximately ${Math.ceil(memory.core.length / 4).toLocaleString()} core tokens` : ''}{memory.core_updated_at ? ` · updated ${timeAgo(memory.core_updated_at)}` : ''}</p>
+		<p class="small muted">{memory.versions} saved versions · {memory.active_rules} active source rules · {memory.corrections} recent corrections or evidence reviews{memory.core ? ` · approximately ${Math.ceil(memory.core.length / 4).toLocaleString()} core tokens` : ''}{memory.core_updated_at ? ` · updated ${timeAgo(memory.core_updated_at)}` : ''}</p>
 		{#if memory.core}
 			<p class="small faint">This version was built with a {memory.core_budget_tokens?.toLocaleString()}-token budget. Save a different budget and use Run now to rebuild it.</p>
 			{#if !memory.core_valid}<p class="small muted">A source rule changed, was disabled or deleted. This version is not being used; original active rules apply until the next successful run.</p>{/if}

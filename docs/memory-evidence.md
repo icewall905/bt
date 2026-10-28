@@ -37,8 +37,8 @@ separately. Consolidation cannot merge explicit rules with tentative inferences.
 Revisions happen while daily feedback is processed; they do not wait for the
 nightly job. Changed wording immediately invalidates an older core, so the
 current source rules apply until consolidation rebuilds it. Confidence-only
-changes do not disrupt the cached core during the day, but are picked up on the
-next consolidation. Repeated reinforcement without new text can therefore still
+changes do not disrupt the cached core during the day. New confidence reviews
+appear alongside recent corrections immediately, then fold into the next consolidation. Repeated reinforcement without new text can therefore still
 update the core's confidence labels.
 
 LLM failures leave the rule intact and the feedback pending for retry. Missing,

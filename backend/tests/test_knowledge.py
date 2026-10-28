@@ -275,7 +275,9 @@ def test_confidence_only_changes_keep_core_usable_but_rebuild_next_run():
     review_rt, _ = runtime()
     knowledge.review(review_rt, le.profile_id, proposal(le, fid), {fid})
     with session() as s:
-        assert memory.select_memory(s, le.profile_id, [s.get(Lesson, le.id)])[0] == old.text
+        core, corrections = memory.select_memory(s, le.profile_id, [s.get(Lesson, le.id)])
+        assert core == old.text and [rule.id for rule in corrections] == [le.id]
+        assert knowledge.describe(s, corrections[0])["opposition"] == 1
     assert memory.compact_profile(rt, le.profile_id, 12000)["status"] == "compacted"
     with session() as s:
         assert memory.latest(s, le.profile_id).id != old_id

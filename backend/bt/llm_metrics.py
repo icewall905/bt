@@ -78,14 +78,16 @@ def overview(s):
     from .agent.knowledge import describe
     from .agent.memory import active, fingerprint, latest, sources_valid
     from .db import get_settings
-    from .models import LessonRevision, Profile
+    from .models import LessonEvidenceState, LessonRevision, Profile
     profiles = []
     strengths = {"explicit": 0, "supported pattern": 0, "tentative inference": 0, "unreviewed inference": 0}
     for profile in s.exec(select(Profile).order_by(Profile.id)).all():
         lessons = active(s, profile.id)
         core = latest(s, profile.id)
         valid = bool(core and sources_valid(core, {str(le.id): fingerprint(le) for le in lessons}))
-        corrections = [le for le in lessons if not valid or str(le.id) not in core.sources]
+        reviewed = set(s.exec(select(LessonEvidenceState.lesson_id).where(
+            LessonEvidenceState.profile_id == profile.id, LessonEvidenceState.updated_at > core.created_at)).all()) if valid else set()
+        corrections = [le for le in lessons if not valid or str(le.id) not in core.sources or le.id in reviewed]
         for lesson in lessons:
             strengths[describe(s, lesson)["kind"]] += 1
         profiles.append({"profile_id": profile.id, "profile": profile.name, "core_valid": valid,
