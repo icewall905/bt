@@ -49,6 +49,8 @@ export class ApiError extends Error {
 }
 
 let unauthorizedHandler: (() => void) | null = null;
+let profileLockedHandler: (() => void) | null = null;
+export function onProfileLocked(fn: () => void) { profileLockedHandler = fn; }
 export function onUnauthorized(fn: () => void) {
 	unauthorizedHandler = fn;
 }
@@ -114,6 +116,7 @@ export async function request<T>(path: string, opts: ReqOpts = {}): Promise<T> {
 	}
 	if (!res.ok) {
 		const msg = detailOf(parsed, `${res.status} ${res.statusText}`);
+		if (res.status === 403 && msg === 'profile PIN required') profileLockedHandler?.();
 		if (opts.toast !== false) toast.error(msg);
 		throw new ApiError(res.status, msg, parsed);
 	}
@@ -141,8 +144,10 @@ export const api = {
 
 	// profiles
 	profiles: () => get<Profile[]>('/profiles'),
-	createProfile: (p: Pick<Profile, 'name' | 'emoji' | 'color'>) => post<Profile>('/profiles', p),
-	updateProfile: (id: number, p: Partial<Profile>) => patch<Profile>(`/profiles/${id}`, p),
+	createProfile: (p: Pick<Profile, 'name' | 'emoji' | 'color'> & { pin?: string }) => post<Profile>('/profiles', p),
+	updateProfile: (id: number, p: Partial<Profile> & { pin?: string }) => patch<Profile>(`/profiles/${id}`, p),
+	unlockProfile: (id: number, pin: string) => post<{ ok: boolean }>(`/profiles/${id}/unlock`, { pin }, { toast: false }),
+	lockProfile: (id: number) => post<{ ok: boolean }>(`/profiles/${id}/lock`),
 	deleteProfile: (id: number) => del<{ ok: boolean }>(`/profiles/${id}`),
 
 	// categories

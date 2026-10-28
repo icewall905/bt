@@ -1,5 +1,5 @@
 // App-wide session: auth, profiles, active profile, cached categories + settings.
-import { api, PROFILE_KEY, onUnauthorized } from '../api';
+import { api, PROFILE_KEY, onUnauthorized, onProfileLocked } from '../api';
 import { thumbnailPreference } from './thumbnailPreference.svelte';
 import type { Category, Profile, Settings } from '../types';
 
@@ -11,6 +11,8 @@ class Session {
 	profileId = $state<number | null>(null);
 	/** Show the full-screen "Who's watching?" picker. */
 	choosing = $state(false);
+	unlocking = $state<Profile | null>(null);
+	private pinAnswer: ((ok: boolean) => void) | null = null;
 	categories = $state<Category[]>([]);
 	settings = $state<Settings | null>(null);
 	/** Bumped whenever the active profile changes: pages re-fetch on change. */
@@ -20,6 +22,9 @@ class Session {
 	needsLogin = $derived(this.authRequired && !this.authenticated);
 
 	constructor() {
+		onProfileLocked(() => { void this.loadProfiles().then(() => {
+			if (this.profile?.pin_locked) { this.categories = []; this.choosing = true; }
+		}); });
 		onUnauthorized(() => {
 			this.authRequired = true;
 			this.authenticated = false;
@@ -54,7 +59,8 @@ class Session {
 			this.persist();
 			if (firstLaunch && this.profiles.length > 1) this.choosing = true;
 		}
-		await Promise.all([this.loadCategories(), this.loadSettings()]);
+		if (this.profile?.pin_locked) { this.categories = []; this.choosing = true; }
+		await Promise.all([this.profile?.pin_locked ? Promise.resolve() : this.loadCategories(), this.loadSettings()]);
 	}
 
 	async loadProfiles() {
@@ -91,12 +97,39 @@ class Session {
 	}
 
 	async switchProfile(id: number) {
-		this.choosing = false;
-		if (id === this.profileId) return;
+		if (!(await this.ensureUnlocked(id))) return false;
+		if (id !== this.profileId && this.profileId != null) await api.lockProfile(this.profileId);
 		this.profileId = id;
 		this.persist();
-		await this.loadCategories();
+		await Promise.all([this.loadProfiles(), this.loadCategories()]);
+		this.choosing = false;
 		this.version++;
+		return true;
+	}
+
+	async ensureUnlocked(id: number): Promise<boolean> {
+		await this.loadProfiles();
+		const profile = this.profiles.find(p => p.id === id);
+		if (!profile) return false;
+		if (!profile.pin_locked) return true;
+		if (this.unlocking) return false;
+		this.unlocking = profile;
+		return new Promise(resolve => { this.pinAnswer = resolve; });
+	}
+
+	answerPin(ok: boolean) {
+		const answer = this.pinAnswer;
+		this.pinAnswer = null;
+		this.unlocking = null;
+		answer?.(ok);
+	}
+
+	async lockProfile() {
+		if (this.profileId == null) return;
+		await api.lockProfile(this.profileId);
+		await this.loadProfiles();
+		this.categories = [];
+		this.choosing = true;
 	}
 
 	async afterLogin() {

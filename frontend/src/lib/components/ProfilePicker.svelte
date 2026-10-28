@@ -10,9 +10,11 @@
 	let manage = $state(false);
 
 	async function pick(p: Profile) {
-		if (manage) return (editing = p);
-		await session.switchProfile(p.id);
-		onClose();
+		if (manage) {
+			if (await session.ensureUnlocked(p.id)) editing = p;
+			return;
+		}
+		if (await session.switchProfile(p.id)) onClose();
 	}
 </script>
 
@@ -27,7 +29,7 @@
 					use:focusable={{ group: 'people', id: `person-${p.id}`, autofocus: p.id === session.profileId, onSelect: () => pick(p) }}
 				>
 					<Avatar emoji={p.emoji} color={p.color} size="clamp(5rem, 8vw, 9rem)" />
-					<span class="name">{p.name}</span>
+					<span class="name">{p.name}{#if p.pin_required}<span class="pin-badge" aria-label="PIN protected"> 🔒</span>{/if}</span>
 					{#if manage}<span class="edit">✎ Edit</span>{/if}
 				</button>
 			{/each}
@@ -37,6 +39,7 @@
 			</button>
 		</div>
 		<div class="hstack actions">
+			{#if session.profile?.pin_required && !session.profile?.pin_locked}<button class="btn" use:focusable={{ onSelect: () => session.lockProfile() }}>Lock profile</button>{/if}
 			<button class="btn" use:focusable={{ id: 'manage', onSelect: () => (manage = !manage) }}>{manage ? 'Done' : 'Manage profiles'}</button>
 			{#if !fullscreen}<button class="btn ghost" use:focusable={{ onSelect: onClose }}>Close</button>{/if}
 		</div>

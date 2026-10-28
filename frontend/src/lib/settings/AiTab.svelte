@@ -14,7 +14,7 @@
 	import Slider from '$lib/components/form/Slider.svelte';
 	import Stepper from '$lib/components/form/Stepper.svelte';
 
-	let { connectionOnly = false, onConnected }: { connectionOnly?: boolean; onConnected?: () => void } = $props();
+	let { connectionOnly = false, onConnected, onConnecting }: { connectionOnly?: boolean; onConnected?: () => void; onConnecting?: (busy: boolean) => void } = $props();
 
 	const llm = new SettingsDraft('llm');
 	const ag = new SettingsDraft('agent');
@@ -103,6 +103,7 @@
 	async function connectAndContinue() {
 		if (connecting) return;
 		connecting = true;
+		onConnecting?.(true);
 		const connection = JSON.stringify(llm.value);
 		try {
 			await test();
@@ -111,7 +112,7 @@
 			const savedAgent = await api.saveSettings('agent', { enabled: true });
 			if (session.settings) session.settings = { ...session.settings, agent: savedAgent };
 			onConnected?.();
-		} finally { connecting = false; }
+		} finally { connecting = false; onConnecting?.(false); }
 	}
 
 	const mins = (s: number) => (s >= 3600 ? `${(s / 3600).toFixed(s % 3600 ? 1 : 0)} h` : s >= 60 ? `${Math.round(s / 60)} min` : `${s} s`);

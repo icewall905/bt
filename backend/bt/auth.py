@@ -57,6 +57,9 @@ def login(body: Login, response: Response):
 
 
 @router.post("/auth/logout")
-def logout(response: Response):
+def logout(request: Request, response: Response):
     response.delete_cookie(COOKIE)
+    for name in request.cookies:
+        if name.startswith("profile_pin_"):
+            response.delete_cookie(name)
     return {"ok": True}

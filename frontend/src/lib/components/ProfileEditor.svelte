@@ -19,14 +19,20 @@
 	let color = $state(profile?.color ?? '#ff6b9a');
 	let confirmDelete = $state(false);
 	let busy = $state(false);
+	let pin = $state('');
+	let repeatPin = $state('');
+	let removePin = $state(false);
 
 	async function save() {
 		if (!name.trim()) return toast.warn('Give the profile a name first.');
+		if (pin && !/^[0-9]{4,8}$/.test(pin)) return toast.warn('Use a PIN with 4 to 8 digits.');
+		if (pin && pin !== repeatPin) return toast.warn('The PINs do not match.');
+		const pinChange = removePin ? { pin: '' } : pin ? { pin } : {};
 		busy = true;
 		try {
-			if (profile) await api.updateProfile(profile.id, { name: name.trim(), emoji, color });
+			if (profile) await api.updateProfile(profile.id, { name: name.trim(), emoji, color, ...pinChange });
 			else {
-				const p = await api.createProfile({ name: name.trim(), emoji, color });
+				const p = await api.createProfile({ name: name.trim(), emoji, color, ...pinChange });
 				toast.success(`Added ${p.name}`);
 			}
 			await session.loadProfiles();
@@ -56,6 +62,14 @@
 		<TextField label="Name" bind:value={name} placeholder="e.g. Maja" autofocus id="profile-name" />
 		<div class="field"><span class="label">Emoji</span><EmojiPicker bind:value={emoji} /></div>
 		<div class="field"><span class="label">Colour</span><ColorPicker bind:value={color} /></div>
+		{#if !removePin}
+			<TextField label={profile?.pin_required ? 'New PIN (optional)' : 'PIN (optional)'} type="password" inputmode="numeric" bind:value={pin} hint={profile?.pin_required ? '4–8 digits. Leave empty to keep the current PIN.' : '4–8 digits. Leave empty for a profile without a PIN.'} group="profile-pin-edit" />
+			{#if pin}<TextField label="Repeat PIN" type="password" inputmode="numeric" bind:value={repeatPin} group="profile-pin-edit" />{/if}
+		{/if}
+		{#if profile?.pin_required}
+			<button class="btn" use:focusable={{ group: 'profile-pin-edit', onSelect: () => { removePin = !removePin; pin = ''; repeatPin = ''; } }}>{removePin ? 'Keep current PIN' : 'Remove PIN'}</button>
+			{#if removePin}<p class="small muted">This profile will open without a PIN after you save.</p>{/if}
+		{/if}
 	</div>
 	{#snippet footer()}
 		{#if profile && session.profiles.length > 1}

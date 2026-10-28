@@ -7,9 +7,12 @@
 	import ProfileEditor from '$lib/components/ProfileEditor.svelte';
 
 	let editing = $state<Profile | null | undefined>(undefined);
+	async function edit(profile: Profile) {
+		if (await session.ensureUnlocked(profile.id)) editing = profile;
+	}
 </script>
 
-<Section title="Profiles" intro="Family members. Each profile has its own playlists, subscriptions, history and AI memory. Settings on this page are shared by everyone.">
+<Section title="Profiles" intro="Family members. Each profile has its own playlists, subscriptions, history and AI memory. A profile PIN is optional. Settings on this page are shared by everyone.">
 	{#snippet actions()}
 		<button class="btn primary" use:focusable={{ group: 'pf-top', onSelect: () => (editing = null) }}>＋ Add person</button>
 	{/snippet}
@@ -18,13 +21,13 @@
 			<div class="item">
 				<Avatar emoji={p.emoji} color={p.color} size="3rem" />
 				<div class="grow">
-					<strong>{p.name}</strong>
+					<strong>{p.name}{p.pin_required ? ' 🔒' : ''}</strong>
 					{#if p.id === session.profileId}<span class="small" style="color:var(--accent)">Watching now</span>{/if}
 				</div>
 				{#if p.id !== session.profileId}
 					<button class="btn mini" use:focusable={{ group: `pf-${p.id}`, onSelect: () => session.switchProfile(p.id) }}>Switch to</button>
 				{/if}
-				<button class="btn mini" use:focusable={{ group: `pf-${p.id}`, onSelect: () => (editing = p) }}>Edit</button>
+				<button class="btn mini" use:focusable={{ group: `pf-${p.id}`, onSelect: () => edit(p) }}>Edit</button>
 			</div>
 		{/each}
 	</div>

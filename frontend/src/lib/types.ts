@@ -7,6 +7,8 @@ export interface Profile {
 	color: string;
 	prefs: Record<string, unknown>;
 	created_at?: string;
+	pin_required?: boolean;
+	pin_locked?: boolean;
 }
 
 export interface CategoryStats {
@@ -317,6 +319,7 @@ export interface DownloadsResponse {
 export type SbAction = 'skip' | 'ask' | 'show' | 'off';
 
 export interface Settings {
+	setup?: { completed: boolean };
 	llm: { base_url: string; model: string; api_key: string; timeout_s: number; vision: boolean; temperature: number };
 	throttle: {
 		min_delay_s: number;

@@ -1,0 +1,6 @@
+# Docker entrypoints and shell scripts must keep Unix line endings on Windows.
+*.sh text eol=lf
+*.command text eol=lf
+*.py text eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf

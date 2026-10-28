@@ -51,6 +51,7 @@
 				<span class="tx"><span class="l">{t.label}</span><span class="h">{t.hint}</span></span>
 			</button>
 		{/each}
+		<a class="tab" href="/welcome" use:focusable={{ group: 'set-tabs', id: 'set-welcome' }}>Setup guide</a>
 	</nav>
 	<div class="content" data-nav-zone="content">
 		{#if !session.settings}

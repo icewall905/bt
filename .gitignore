@@ -7,3 +7,6 @@ frontend/.svelte-kit/
 data/
 .env
 backend/by/static/
+
+media/
+backups/

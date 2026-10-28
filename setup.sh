@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+source scripts/common.sh
+require_docker
+if [ ! -f .env ]; then
+  echo 'BetterTube setup. Press Enter to use the defaults.'
+  while true; do
+    read -r -p 'Folder for app data [./data]: ' data
+    read -r -p 'Folder for downloaded videos [./media]: ' media
+    data=${data:-./data}; media=${media:-./media}
+    # Expand the familiar ~/ form without evaluating user input as shell code.
+    case "$data" in '~/'*) data="$HOME/${data:2}" ;; esac
+    case "$media" in '~/'*) media="$HOME/${media:2}" ;; esac
+    mkdir -p "$data" "$media" || fail 'Could not create the folders. Choose folders your user can write to.'
+    data=$(cd "$data" && pwd -P); media=$(cd "$media" && pwd -P)
+    case "$PWD/" in "$data/"*|"$media/"*) echo 'Choose dedicated storage folders, not the repository or one of its parents.'; continue ;; esac
+    case "$data/" in "$media/"*) echo 'App data and videos need separate, non-nested folders.'; continue ;; esac
+    case "$media/" in "$data/"*) echo 'App data and videos need separate, non-nested folders.'; continue ;; esac
+    [ -w "$data" ] && [ -w "$media" ] || fail 'Both folders must be writable by your user.'
+    break
+  done
+  while true; do
+    read -r -p 'Web port [6645]: ' port
+    port=${port:-6645}
+    if [[ "$port" =~ ^[0-9]{1,5}$ ]] && (( 10#$port >= 1 && 10#$port <= 65535 )); then port=$((10#$port)); break; fi
+    echo 'Choose a number from 1 to 65535.'
+  done
+  password=''
+  read -r -p 'Protect the whole app with a shared password? [y/N]: ' protect
+  if [[ "$protect" =~ ^[yY]([eE][sS])?$ ]]; then
+    while true; do
+      read -r -s -p 'Web password (Enter generates one): ' password; echo
+      if [ -z "$password" ]; then
+        password=$(LC_ALL=C od -An -N18 -tx1 /dev/urandom | tr -d ' \n')
+        echo "Your generated password: $password"
+        echo 'Save it somewhere safe before continuing.'
+        break
+      fi
+      read -r -s -p 'Repeat password: ' repeated; echo
+      [ "$password" = "$repeated" ] && break
+      echo 'The passwords did not match. Try again.'
+    done
+  else
+    echo 'Shared login is off. Optional profile PINs are available in Settings.'
+  fi
+  # Double quoting handles trailing backslashes; $$ keeps dollar signs literal in Compose.
+  quote() {
+    local value=$1
+    value=${value//\\/\\\\}
+    value=${value//\"/\\\"}
+    value=${value//\$/\$\$}
+    printf '"%s"' "$value"
+  }
+  umask 077
+  {
+    printf 'BT_DATA_HOST_DIR='; quote "$data"; printf '\nBT_MEDIA_HOST_DIR='; quote "$media"
+    printf '\nBT_PORT=%s\nBT_PASSWORD=' "$port"; quote "$password"
+    printf '\nBT_SECRET=\nBT_LLM_BASE_URL=\nBT_LLM_MODEL=\nBT_LLM_API_KEY=\nBT_POT_URL=http://pot:4416\nBT_YTDLP_AUTOUPDATE=1\n'
+  } > .env
+  unset password repeated
+  echo 'Saved configuration to .env. More settings are available in the web app.'
+else
+  echo 'Using your existing .env. Your password and storage choices are preserved.'
+fi
+if [ "${1:-}" = '--configure-only' ]; then
+  compose_check
+  echo 'Configuration saved. You can now restore a backup with bash manage.sh restore.'
+else
+  start_app
+fi

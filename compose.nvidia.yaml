@@ -1,0 +1,13 @@
+# Optional: docker compose -f compose.yaml -f compose.nvidia.yaml up -d
+services:
+  bt-downloader:
+    environment:
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "compute,utility,video"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu, video]
+              count: 1

@@ -151,6 +151,8 @@ class FakeTime:
 def fresh_db():
     SQLModel.metadata.drop_all(engine)
     init_db()
+    # Pipeline tests exercise an explicitly enabled curator after onboarding.
+    save_setting("agent", {"enabled": True})
     save_setting("throttle", {"min_delay_s": 0, "max_delay_s": 0, "max_per_hour": 1000, "max_per_day": 10000,
                               "backoff_min_s": 3600, "backoff_max_s": 21600, "pause_while_playing": True,
                               "quiet_hours": "", "search_results": 15, "max_comments": 40,

@@ -15,6 +15,7 @@
 	import AddToCategory from '$lib/components/AddToCategory.svelte';
 	import CandidateDrawer from '$lib/components/CandidateDrawer.svelte';
 	import ProfilePicker from '$lib/components/ProfilePicker.svelte';
+	import ProfilePin from '$lib/components/ProfilePin.svelte';
 	import Login from '$lib/components/Login.svelte';
 	import { applyTheme } from '$lib/themes';
 	import PlaybackPicker from '$lib/components/PlaybackPicker.svelte';
@@ -49,6 +50,11 @@
 		return playback.start();
 	});
 	$effect(() => { applyTheme(session.settings?.appearance?.theme); });
+	$effect(() => {
+		if (session.ready && !session.needsLogin && session.settings?.setup?.completed === false && page.url.pathname === '/') {
+			goto('/welcome', { replaceState: true });
+		}
+	});
 
 	const fullscreen = $derived(page.url.pathname.startsWith('/watch/'));
 </script>
@@ -58,19 +64,24 @@
 {:else if session.needsLogin}
 	<Login />
 {:else}
-	{#if !fullscreen}<TopBar />{:else}<PlaybackPicker floating />{/if}
-	<main class:fullscreen>
-		{#key session.version}
-			{@render children()}
-		{/key}
-	</main>
-	{#if session.choosing}
+	{#if !session.profile?.pin_locked}
+		{#if !fullscreen}<TopBar />{:else}<PlaybackPicker floating />{/if}
+		<main class:fullscreen>
+			{#key session.version}
+				{@render children()}
+			{/key}
+		</main>
+	{/if}
+	{#if session.choosing || session.profile?.pin_locked}
 		<ProfilePicker fullscreen onClose={() => (session.choosing = false)} />
 	{/if}
-	{#if dialogs.candidate != null}<CandidateDrawer />{/if}
-	{#if dialogs.feedback}<FeedbackDialog />{/if}
-	{#if dialogs.addTo}<AddToCategory />{/if}
+	{#if !session.profile?.pin_locked}
+		{#if dialogs.candidate != null}<CandidateDrawer />{/if}
+		{#if dialogs.feedback}<FeedbackDialog />{/if}
+		{#if dialogs.addTo}<AddToCategory />{/if}
+	{/if}
 {/if}
+{#if session.unlocking}<ProfilePin profile={session.unlocking} />{/if}
 <OskOverlay />
 <Toasts />
 

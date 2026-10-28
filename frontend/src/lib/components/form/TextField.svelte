@@ -9,13 +9,14 @@
 		multiline?: boolean;
 		type?: 'text' | 'password' | 'url' | 'search' | 'number';
 		rows?: number;
+		inputmode?: 'numeric' | 'text';
 		id?: string;
 		group?: string;
 		autofocus?: boolean;
 		onsubmit?: () => void;
 		oninput?: (v: string) => void;
 	}
-	let { value = $bindable(''), label, hint, placeholder = '', multiline = false, type = 'text', rows = 5, id, group, autofocus, onsubmit, oninput }: Props = $props();
+	let { value = $bindable(''), label, hint, placeholder = '', multiline = false, type = 'text', rows = 5, inputmode, id, group, autofocus, onsubmit, oninput }: Props = $props();
 
 	function onInput(e: Event) {
 		value = (e.currentTarget as HTMLInputElement).value;
@@ -39,6 +40,7 @@
 		<input
 			class="input"
 			{type}
+			{inputmode}
 			{placeholder}
 			aria-label={label ?? placeholder}
 			{value}

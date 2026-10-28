@@ -1,9 +1,29 @@
+# Only application source enters the build context. Custom storage folders,
+# backups, secrets and local development files stay on the host.
+**
+!Dockerfile
+!docker-entrypoint.sh
+!backend/
+backend/**
+!backend/requirements.txt
+!backend/bt/
+!backend/bt/**
+!frontend/
+frontend/**
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/svelte.config.js
+!frontend/tsconfig.json
+!frontend/vite.config.ts
+!frontend/src/
+!frontend/src/**
+!frontend/static/
+!frontend/static/**
+**/__pycache__
+**/*.pyc
+**/.env
+**/.env.*
 **/node_modules
 **/.venv
-**/__pycache__
+**/.svelte-kit
 frontend/build
-frontend/.svelte-kit
-frontend/screenshots
-data
-.git
-.env

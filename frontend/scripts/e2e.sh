@@ -12,4 +12,6 @@ PORT="${BT_E2E_PORT:-$(python3 -c 'import socket; s=socket.socket(); s.bind(("12
 PID=$!
 trap 'kill $PID 2>/dev/null; rm -rf "$DATA"' EXIT
 for _ in $(seq 60); do curl -sf "http://127.0.0.1:$PORT/api/health" >/dev/null && break; sleep 0.5; done
+# Existing UI checks start with onboarding completed; welcome.spec.ts explicitly tests new installs.
+curl -sf -X PUT -H 'Content-Type: application/json' -d '{"completed":true}' "http://127.0.0.1:$PORT/api/settings/setup" >/dev/null
 BT_URL="http://127.0.0.1:$PORT" BT_E2E_DATA="$DATA" BT_E2E_BACKEND="$BACKEND" npx playwright test "$@"

@@ -4,13 +4,14 @@ import re
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 from sqlmodel import Session, col, delete, func, select
 from sqlalchemy import update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import load_only
 
+from .. import profile_pins
 from ..config import COOKIES_PATH, DEFAULT_SETTINGS
 from ..db import emit, get_session, get_settings, save_setting, session, yt_request_counts
 from ..downloader.service import drop_unwanted
@@ -23,14 +24,14 @@ router = APIRouter()
 
 # ---------- helpers
 
-def profile_id(x_profile_id: Optional[int] = Header(default=None)) -> int:
+def profile_id(request: Request, x_profile_id: Optional[int] = Header(default=None)) -> int:
     """Active profile from X-Profile-Id header; falls back to first profile."""
     with session() as s:
-        if x_profile_id and s.get(Profile, x_profile_id):
-            return x_profile_id
-        p = s.exec(select(Profile).order_by(Profile.id)).first()
+        p = s.get(Profile, x_profile_id) if x_profile_id else None
+        p = p or s.exec(select(Profile).order_by(Profile.id)).first()
         if not p:
             raise HTTPException(400, "no profiles")
+        profile_pins.require(s, p.id, request)
         return p.id
 
 
@@ -90,6 +91,7 @@ class ProfileIn(BaseModel):
     emoji: str = "🙂"
     color: str = "#7c5cff"
     prefs: dict = {}
+    pin: Optional[str] = None
 
 
 class ProfilePatch(BaseModel):
@@ -97,41 +99,85 @@ class ProfilePatch(BaseModel):
     emoji: Optional[str] = None
     color: Optional[str] = None
     prefs: Optional[dict] = None
+    pin: Optional[str] = None
+
+
+def profile_out(p: Profile, s: Session, request: Request):
+    return {**p.model_dump(), "pin_required": profile_pins.record(s, p.id) is not None,
+            "pin_locked": profile_pins.locked(s, p.id, request)}
 
 
 @router.get("/profiles")
-def list_profiles(s: Session = Depends(get_session)):
-    return s.exec(select(Profile).order_by(Profile.id)).all()
+def list_profiles(request: Request, s: Session = Depends(get_session)):
+    return [profile_out(p, s, request) for p in s.exec(select(Profile).order_by(Profile.id)).all()]
 
 
 @router.post("/profiles")
-def create_profile(body: ProfileIn, s: Session = Depends(get_session)):
-    p = Profile(**body.model_dump())
+def create_profile(body: ProfileIn, request: Request, s: Session = Depends(get_session)):
+    profile_pins.validate(body.pin)
+    p = Profile(**body.model_dump(exclude={"pin"}))
     s.add(p)
+    s.flush()
+    if body.pin:
+        profile_pins.set_pin(s, p.id, body.pin)
     s.commit()
     s.refresh(p)
-    return p
+    return profile_out(p, s, request)
 
 
 @router.patch("/profiles/{pid}")
-def patch_profile(pid: int, body: ProfilePatch, s: Session = Depends(get_session)):
+def patch_profile(pid: int, body: ProfilePatch, request: Request, response: Response, s: Session = Depends(get_session)):
     p = s.get(Profile, pid) or _404()
-    _apply(p, body.model_dump(exclude_none=True))
+    profile_pins.require(s, pid, request)
+    profile_pins.validate(body.pin)
+    _apply(p, body.model_dump(exclude_none=True, exclude={"pin"}))
     s.add(p)
+    if body.pin is not None:
+        profile_pins.set_pin(s, pid, body.pin)
     s.commit()
-    return p
+    if body.pin is not None:
+        first_id = s.exec(select(Profile.id).order_by(Profile.id)).first()
+        is_active = request.headers.get("X-Profile-Id", str(first_id)) == str(pid)
+        if is_active:
+            profile_pins.unlock_cookie(s, pid, response)
+        else:
+            response.delete_cookie(profile_pins.key(pid))
+    result = profile_out(p, s, request)
+    if body.pin is not None:
+        result["pin_locked"] = result["pin_required"] and not is_active
+    return result
+
+
+class ProfileUnlock(BaseModel):
+    pin: str
+
+
+@router.post("/profiles/{pid}/unlock")
+def unlock_profile(pid: int, body: ProfileUnlock, response: Response, s: Session = Depends(get_session)):
+    if not s.get(Profile, pid):
+        _404()
+    profile_pins.unlock(s, pid, body.pin, response)
+    return {"ok": True}
+
+
+@router.post("/profiles/{pid}/lock")
+def lock_profile(pid: int, response: Response):
+    response.delete_cookie(profile_pins.key(pid))
+    return {"ok": True}
 
 
 @router.delete("/profiles/{pid}")
-def delete_profile(pid: int, s: Session = Depends(get_session)):
+def delete_profile(pid: int, request: Request, s: Session = Depends(get_session)):
     if s.exec(select(func.count()).select_from(Profile)).one() <= 1:
         raise HTTPException(400, "cannot delete the last profile")
     p = s.get(Profile, pid) or _404()
+    profile_pins.require(s, pid, request)
     cats = [c.id for c in s.exec(select(Category).where(Category.profile_id == pid)).all()]
     if cats:
         s.exec(delete(Candidate).where(col(Candidate.category_id).in_(cats)))
     for m in (Category, ProfileChannel, Feedback, Lesson, LessonEvidenceState, LessonRevision, WatchHistory):
         s.exec(delete(m).where(m.profile_id == pid))
+    profile_pins.set_pin(s, pid, "")
     s.delete(p)
     s.commit()
     return {"ok": True}

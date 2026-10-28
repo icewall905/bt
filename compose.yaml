@@ -1,27 +1,28 @@
 name: bt
 
 x-bt: &bt
-  build: .
   image: bettertube:latest
   restart: unless-stopped
   env_file: .env
   volumes:
-    - ./data:/data
-    - ${BT_MEDIA_HOST_DIR:-/mnt/local/localstorage/bt}:/media
+    - ${BT_DATA_HOST_DIR:-./data}:/data
+    - ${BT_MEDIA_HOST_DIR:-./media}:/media
   depends_on:
     - pot
 
 services:
   bt-api:
     <<: *bt
+    build: .
     container_name: bt-api
     ports:
-      - "6645:6645"
+      - "${BT_PORT:-6645}:6645"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:6645/api/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 60s
 
   bt-worker:
     <<: *bt
@@ -34,16 +35,6 @@ services:
     container_name: bt-downloader
     command: ["python", "-m", "bt.downloader"]
     stop_grace_period: 30s
-    environment:
-      NVIDIA_VISIBLE_DEVICES: "all"
-      NVIDIA_DRIVER_CAPABILITIES: "compute,utility,video"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              capabilities: [gpu, video]
-              count: 1
 
   pot:
     image: brainicism/bgutil-ytdlp-pot-provider:2.0.2-deno

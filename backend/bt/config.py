@@ -27,6 +27,8 @@ POT_URL = os.environ.get("BT_POT_URL", "http://pot:4416")
 
 # Global settings (key -> default). Stored in Setting table, merged over these.
 DEFAULT_SETTINGS: dict = {
+    # Older databases remain ready; init_db opts new installations into the guide.
+    "setup": {"completed": True},
     "llm": {
         "base_url": os.environ.get("BT_LLM_BASE_URL", "http://10.0.10.23:8080/v1"),
         "model": os.environ.get("BT_LLM_MODEL", "currentmodel"),

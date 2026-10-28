@@ -24,11 +24,17 @@ def _pragmas(conn, _):
 
 
 def init_db() -> None:
-    SQLModel.metadata.create_all(engine)
-    with Session(engine) as s:
-        if not s.exec(select(Profile)).first():
-            s.add(Profile(name="Family", emoji="🏠", color="#7c5cff"))
-            s.commit()
+    # All three services start together. Serialize schema creation and first-run
+    # defaults so they cannot create duplicate profiles or settings.
+    with engine.begin() as connection:
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+        SQLModel.metadata.create_all(connection)
+        with Session(connection) as s:
+            if not s.exec(select(Profile)).first():
+                s.add(Profile(name="Family", emoji="🏠", color="#7c5cff"))
+                s.merge(Setting(key="setup", value={"completed": False}))
+                s.merge(Setting(key="agent", value={"enabled": False}))
+                s.commit()
 
 
 @contextmanager

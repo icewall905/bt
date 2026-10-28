@@ -100,7 +100,7 @@ class Playback {
 		try {
 			if (command.action === 'play' && command.video_id) {
 				window.dispatchEvent(new Event('bt:before-cast'));
-				await session.switchProfile(command.profile_id);
+				if (!(await session.switchProfile(command.profile_id))) throw new Error('Profile was not unlocked');
 				const query = new URLSearchParams({ cast: command.id });
 				if (command.category_id) query.set('c', String(command.category_id));
 				await goto(`/watch/${command.video_id}?${query}`);
