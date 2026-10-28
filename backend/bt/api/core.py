@@ -286,7 +286,11 @@ def home_feed(per_row: int = 20, pid: int = Depends(profile_id), s: Session = De
     # Continue watching
     hist = s.exec(select(WatchHistory, Video).join(Video, Video.id == WatchHistory.video_id)
                   .where(WatchHistory.profile_id == pid, WatchHistory.finished == False,  # noqa: E712
-                         WatchHistory.position_s > 15)
+                         WatchHistory.position_s > 15,
+                         ~col(WatchHistory.video_id).in_(
+                             select(Feedback.video_id).where(Feedback.profile_id == pid, Feedback.rating < 0,
+                                 col(Feedback.id).in_(select(func.max(Feedback.id)).where(
+                                     Feedback.profile_id == pid, Feedback.rating != 0).group_by(Feedback.video_id)))))
                   .order_by(col(WatchHistory.updated_at).desc()).limit(per_row)).all()
     off = _offline_ids([v.id for _, v in hist], s)
     if hist:
@@ -589,7 +593,7 @@ def save_history(body: HistoryIn, pid: int = Depends(profile_id), s: Session = D
     was_finished = h.finished
     h.position_s, h.duration_s = body.position_s, body.duration_s or h.duration_s
     h.category_id = body.category_id or h.category_id
-    h.finished = body.finished or (h.duration_s > 0 and body.position_s >= h.duration_s * 0.92)
+    h.finished = was_finished or body.finished or (h.duration_s > 0 and body.position_s >= h.duration_s * 0.92)
     h.updated_at = now()
     s.add(h)
     s.commit()

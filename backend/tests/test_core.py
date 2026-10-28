@@ -415,3 +415,40 @@ def test_stats_all_profiles_keep_watch_history_separate():
     assert results[0]['overview']['candidates']['in_queue'] == sum(r['counts']['in_queue'] for r in rows.values())
     assert results[0]['daily'][-1]['watched_by_category'][str(cats[0]['id'])] == 1
     assert results[0] == c.get('/api/stats/page?days=7').json()
+
+
+def test_continue_watching_seen_and_boring_persist_across_reload_and_late_progress():
+    c = client()
+    profile = c.post('/api/profiles', json={'name': 'Continue persistence'}).json()
+    other = c.post('/api/profiles', json={'name': 'Other continue'}).json()
+    headers = {'X-Profile-Id': str(profile['id'])}
+    other_headers = {'X-Profile-Id': str(other['id'])}
+    cat = c.post('/api/categories', json={'name': 'Continue playlist'}, headers=headers).json()
+    ids = ['contseen001', 'contbore001', 'contkeep001']
+    with session() as s:
+        for vid in ids:
+            s.add(Video(id=vid, title=vid, duration_s=600))
+            s.add(Candidate(category_id=cat['id'], video_id=vid, status='accepted'))
+        s.commit()
+    for vid in ids:
+        assert c.post('/api/history', json={'video_id': vid, 'position_s': 120, 'duration_s': 600,
+                      'category_id': cat['id']}, headers=headers).status_code == 200
+    c.post('/api/history', json={'video_id': ids[1], 'position_s': 80, 'duration_s': 600}, headers=other_headers)
+    def continuing(h):
+        rows = c.get('/api/feed/home', headers=h).json()
+        return [item['video']['id'] for row in rows if row['kind'] == 'continue' for item in row['items']]
+    assert set(continuing(headers)) == set(ids)
+    assert c.post('/api/history/seen', json={'video_id': ids[0]}, headers=headers).status_code == 200
+    assert c.post('/api/feedback', json={'video_id': ids[1], 'category_id': cat['id'],
+                  'rating': -1, 'chips': ['Boring']}, headers=headers).status_code == 200
+    # A late progress beacon from the previous player must not reverse Seen it.
+    c.post('/api/history', json={'video_id': ids[0], 'position_s': 130, 'duration_s': 600}, headers=headers)
+    assert c.get('/api/history/' + ids[0], headers=headers).json()['finished'] is True
+    assert continuing(headers) == [ids[2]]
+    assert continuing(headers) == [ids[2]]  # a fresh request behaves like a reload
+    assert continuing(other_headers) == [ids[1]]
+    # Negative feedback is preserved as feedback, not falsely recorded as watched.
+    assert c.get('/api/history/' + ids[1], headers=headers).json()['finished'] is False
+    # A later explicit positive correction can put the unfinished video back.
+    c.post('/api/feedback', json={'video_id': ids[1], 'rating': 1, 'text': 'Actually enjoyed it'}, headers=headers)
+    assert ids[1] in continuing(headers)

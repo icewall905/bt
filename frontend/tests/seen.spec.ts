@@ -162,3 +162,30 @@ test('Boring sends feedback the agent learns from', async ({ page, request }) =>
 	const feed = await (await request.get(`/api/feed/category/${id}`)).json();
 	expect(feed.some((c: { video: { id: string } }) => c.video.id === 'boringvid000')).toBe(false);
 });
+
+test('Continue watching Seen it and Boring stay dismissed after reload', async ({ page, request }) => {
+	const id = await getCatId(request);
+	execFileSync(join(BACKEND!, '.venv/bin/python'), ['-c', `
+from sqlmodel import select
+from bt.db import session
+from bt.models import Profile, Video, WatchHistory
+with session() as s:
+    pid = s.exec(select(Profile)).first().id
+    for vid, title in [('cwseen00001', 'Continue seen example'), ('cwboring001', 'Continue boring example'), ('cwkeep00001', 'Continue keep example')]:
+        s.merge(Video(id=vid, title=title, duration_s=600))
+        s.add(WatchHistory(profile_id=pid, video_id=vid, position_s=100, duration_s=600, category_id=${id}))
+    s.commit()
+`], { cwd: BACKEND, env: { ...process.env, BT_DATA_DIR: DATA! } });
+	await freshPage(page, '/');
+	for (const [title, action] of [['Continue seen example', 'Seen it'], ['Continue boring example', 'Boring']]) {
+		const card = page.locator('.card', { hasText: title });
+		await expect(card).toBeVisible();
+		await card.hover();
+		await card.getByRole('button', { name: action }).click();
+		await expect(card).toHaveCount(0);
+	}
+	await page.reload();
+	await expect(page.locator('.card', { hasText: 'Continue seen example' })).toHaveCount(0);
+	await expect(page.locator('.card', { hasText: 'Continue boring example' })).toHaveCount(0);
+	await expect(page.locator('.card', { hasText: 'Continue keep example' })).toBeVisible();
+});
