@@ -71,12 +71,14 @@
 		if (hideTimer) clearTimeout(hideTimer);
 		hideTimer = setTimeout(() => {
 			if (!paused && !menu && !info && !ended && !askSeg) controls = false;
-		}, 4500);
+		}, 5000);
 	}
 	$effect(() => {
 		if (paused || ended) {
 			controls = true;
 			if (hideTimer) clearTimeout(hideTimer);
+		} else if (!menu && !info && !askSeg) {
+			poke();
 		}
 	});
 
@@ -990,6 +992,8 @@
 	}
 	.overlay.show {
 		opacity: 1;
+	}
+	.overlay.show .top, .overlay.show .bottom {
 		pointer-events: auto;
 	}
 	.top {
