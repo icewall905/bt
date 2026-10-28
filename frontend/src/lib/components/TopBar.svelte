@@ -24,7 +24,7 @@
 
 <header class="topbar glass" data-nav-noscroll data-nav-skip-initial>
 	<a class="logo" href="/" aria-label="BetterTube home" tabindex="-1" data-nav-off>
-		<img src="/favicon.svg" alt="" width="34" height="34" />
+		<img src="/favicon.svg" alt="" width="38" height="38" />
 	</a>
 
 	<nav class="tabs" aria-label="Main">
@@ -81,8 +81,8 @@
 		flex: none;
 	}
 	.logo img {
-		width: 2.1rem;
-		height: 2.1rem;
+		width: 2.4rem;
+		height: 2.4rem;
 	}
 	.tabs {
 		display: flex;
