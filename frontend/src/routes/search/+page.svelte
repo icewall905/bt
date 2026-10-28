@@ -56,7 +56,6 @@
 	}
 </script>
 
-<svelte:head><title>Search · BetterTube</title></svelte:head>
 
 <div class="page search">
 	<aside class="left">

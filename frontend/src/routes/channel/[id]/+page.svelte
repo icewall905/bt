@@ -37,7 +37,6 @@
 	}
 </script>
 
-<svelte:head><title>{ch?.name ?? 'Channel'} · BetterTube</title></svelte:head>
 
 <div class="page">
 	<header class="head">

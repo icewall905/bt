@@ -130,7 +130,6 @@
 	});
 </script>
 
-<svelte:head><title>BetterTube</title></svelte:head>
 
 {#if rows === null}
 	<div class="hero skeleton-hero">

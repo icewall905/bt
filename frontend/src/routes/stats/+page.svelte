@@ -100,7 +100,6 @@
 	<button class="count-link" aria-label="{label}{category ? ` · ${category.name}` : ''}{day ? ` · ${day}` : ''}: {value}" use:focusable={{ group: category ? `stats-cat-${category.id}` : day ? `stats-day-${day}` : 'stats-counts', onSelect: () => drill(metric, category ? `${label} · ${category.name}` : label, category?.id, day) }}>{value}</button>
 {/snippet}
 
-<svelte:head><title>Statistics · BetterTube</title></svelte:head>
 
 <div class="page stack stats" style="gap:2.2rem">
 	<header class="head">

@@ -36,7 +36,6 @@
 	}
 </script>
 
-<svelte:head><title>Settings · BetterTube</title></svelte:head>
 
 <div class="page settings">
 	<nav class="side" aria-label="Settings sections" data-nav-zone="side">

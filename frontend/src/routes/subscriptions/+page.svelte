@@ -34,7 +34,6 @@
 	}
 </script>
 
-<svelte:head><title>Subscriptions · BetterTube</title></svelte:head>
 
 <div class="page stack" style="gap:2.2rem">
 	<header class="head">

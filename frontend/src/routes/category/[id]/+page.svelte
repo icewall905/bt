@@ -103,7 +103,6 @@
 	};
 </script>
 
-<svelte:head><title>{cat ? `${cat.name} · BetterTube` : 'Playlist'}</title></svelte:head>
 
 <div class="page" style:--cat={cat?.color ?? 'var(--ai)'}>
 	{#if notFound}

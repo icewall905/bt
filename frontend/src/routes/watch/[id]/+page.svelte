@@ -625,7 +625,6 @@
 	const thumbUrl = $derived(id ? api.thumb(id, 'maxres') : '');
 </script>
 
-<svelte:head><title>{title ? `${title} · BetterTube` : 'BetterTube'}</title></svelte:head>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="watch" class:hide-cursor={!controls} onpointermove={poke} onpointerdown={poke}>

@@ -25,7 +25,6 @@
 <header class="topbar glass" data-nav-noscroll data-nav-skip-initial>
 	<a class="logo" href="/" aria-label="BetterTube home" tabindex="-1" data-nav-off>
 		<img src="/favicon.svg" alt="" width="34" height="34" />
-		<span class="word">BetterTube</span>
 	</a>
 
 	<nav class="tabs" aria-label="Main">
@@ -84,11 +83,6 @@
 	.logo img {
 		width: 2.1rem;
 		height: 2.1rem;
-	}
-	.word {
-		font-weight: 800;
-		font-size: 1.2rem;
-		letter-spacing: -0.03em;
 	}
 	.tabs {
 		display: flex;
@@ -180,9 +174,6 @@
 			-webkit-backdrop-filter: none;
 			background: rgba(12, 10, 28, 0.94);
 			gap: 0.5rem;
-		}
-		.word {
-			display: none;
 		}
 		.tabs {
 			position: fixed;

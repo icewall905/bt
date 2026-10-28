@@ -91,7 +91,6 @@
 	};
 </script>
 
-<svelte:head><title>AI activity · BetterTube</title></svelte:head>
 
 <div class="page agent">
 	<section class="status panel {tone}">
