@@ -138,6 +138,27 @@ class Lesson(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=now)
 
 
+class LessonEvidenceState(SQLModel, table=True):
+    """Verified evidence for an inferred rule; separate table needs no legacy ALTER."""
+    lesson_id: int = Field(primary_key=True)
+    profile_id: int = Field(index=True)
+    signature: str
+    protected: bool = False
+    assessments: dict = J({})
+    updated_at: datetime = Field(default_factory=now)
+
+
+class LessonRevision(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    lesson_id: int = Field(index=True)
+    profile_id: int = Field(index=True)
+    before: str = Field(sa_column=Column(Text))
+    after: str = Field(sa_column=Column(Text))
+    reason: str = Field(sa_column=Column(Text))
+    evidence: dict = J({})
+    created_at: datetime = Field(default_factory=now)
+
+
 class MemoryCore(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     profile_id: int = Field(index=True)

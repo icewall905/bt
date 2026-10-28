@@ -14,7 +14,7 @@ from ..config import COOKIES_PATH, DEFAULT_SETTINGS
 from ..db import emit, get_session, get_settings, save_setting, session, yt_request_counts
 from ..downloader.service import drop_unwanted
 from ..playlist import order_playlist
-from ..models import (AgentEvent, Candidate, Category, Channel, Download, Feedback, Lesson, Profile, ProfileChannel, ReencodeJob, ReencodeResult, Video,
+from ..models import (AgentEvent, Candidate, Category, Channel, Download, Feedback, Lesson, LessonEvidenceState, LessonRevision, Profile, ProfileChannel, ReencodeJob, ReencodeResult, Video,
                       WatchHistory, YtRequest, now)
 
 router = APIRouter()
@@ -129,7 +129,7 @@ def delete_profile(pid: int, s: Session = Depends(get_session)):
     cats = [c.id for c in s.exec(select(Category).where(Category.profile_id == pid)).all()]
     if cats:
         s.exec(delete(Candidate).where(col(Candidate.category_id).in_(cats)))
-    for m in (Category, ProfileChannel, Feedback, Lesson, WatchHistory):
+    for m in (Category, ProfileChannel, Feedback, Lesson, LessonEvidenceState, LessonRevision, WatchHistory):
         s.exec(delete(m).where(m.profile_id == pid))
     s.delete(p)
     s.commit()
@@ -528,13 +528,18 @@ class LessonIn(BaseModel):
 
 @router.get("/lessons")
 def list_lessons(pid: int = Depends(profile_id), s: Session = Depends(get_session)):
-    return s.exec(select(Lesson).where(Lesson.profile_id == pid).order_by(col(Lesson.updated_at).desc())).all()
+    from ..agent.knowledge import describe
+    lessons = s.exec(select(Lesson).where(Lesson.profile_id == pid).order_by(col(Lesson.updated_at).desc())).all()
+    return [{**le.model_dump(), "evidence": describe(s, le)} for le in lessons]
 
 
 @router.post("/lessons")
 def create_lesson(body: LessonIn, pid: int = Depends(profile_id), s: Session = Depends(get_session)):
     lesson = Lesson(**body.model_dump(), profile_id=pid)
     s.add(lesson)
+    s.flush()
+    from ..agent.knowledge import register
+    register(s, lesson, explicit=True)
     s.commit()
     s.refresh(lesson)
     return lesson
@@ -548,6 +553,8 @@ def patch_lesson(lid: int, body: dict, pid: int = Depends(profile_id), s: Sessio
     _apply(lesson, {k: v for k, v in body.items() if k in LessonIn.model_fields})
     lesson.updated_at = now()
     s.add(lesson)
+    from ..agent.knowledge import register
+    register(s, lesson, explicit=True)
     s.commit()
     return lesson
 
@@ -557,6 +564,8 @@ def delete_lesson(lid: int, pid: int = Depends(profile_id), s: Session = Depends
     lesson = s.get(Lesson, lid)
     if not lesson or lesson.profile_id != pid:
         _404()
+    s.exec(delete(LessonEvidenceState).where(LessonEvidenceState.lesson_id == lid))
+    s.exec(delete(LessonRevision).where(LessonRevision.lesson_id == lid, LessonRevision.profile_id == pid))
     s.delete(lesson)
     s.commit()
     return {"ok": True}

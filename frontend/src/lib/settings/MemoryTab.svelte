@@ -119,7 +119,7 @@
 </Section>
 
 <div style="height:2rem"></div>
-<Section title="AI memory" intro="Rules learned from feedback, plus any you add yourself. Consolidated rules are represented by the core; new or edited corrections apply from the next request.">
+<Section title="AI memory" intro="Rules learned from feedback, plus any you add yourself. Inferences can be refined after at least two independent opposing videos outweigh their support. Rules you add or edit stay protected. Revisions appear in Agent activity; earlier wording and evidence are retained.">
 	<div class="add panel">
 		<TextField label="Teach the AI a rule" bind:value={draft} placeholder="e.g. Avoid videos where people shout at each other" onsubmit={add} group="lesson-add" />
 		<div class="row">
@@ -143,6 +143,7 @@
 					{:else}
 						<div class="grow">
 							<p class="lt">{l.text}</p>
+							<p class="small muted">{l.evidence?.kind ?? 'Unreviewed'}{l.evidence && l.evidence.kind !== 'explicit' ? ` · ${l.evidence.support} supporting / ${l.evidence.opposition} opposing videos` : ' · changes only when you edit it'}</p>
 							<p class="small faint">{catLabel(l.category_id)}{l.channel_id ? ', one channel' : ''}. Weight {l.weight.toFixed(1)}. Updated {timeAgo(l.updated_at)}.</p>
 						</div>
 						<button class="btn mini" use:focusable={{ group: `l-${l.id}`, onSelect: () => toggle(l) }}>{l.active ? 'Active' : 'Paused'}</button>

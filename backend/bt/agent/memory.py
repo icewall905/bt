@@ -1,4 +1,4 @@
-"""Nightly, versioned lesson consolidation. Raw lessons are never deleted or disabled."""
+"""Nightly versioned consolidation. Evidence-gated revisions retain original text in history."""
 from __future__ import annotations
 
 import hashlib
@@ -11,7 +11,7 @@ from sqlalchemy import text
 from sqlmodel import col, select
 
 from ..db import get_agent_control, get_kv, get_settings, save_setting, session, update_agent_control
-from ..models import Category, Feedback, Lesson, MemoryCore, Profile, Video, now
+from ..models import Category, Feedback, Lesson, LessonEvidenceState, MemoryCore, Profile, Video, now
 from .runtime import Interrupt
 
 SCHEMA = {"type": "object", "properties": {"rules": {"type": "array", "items": {
@@ -29,7 +29,7 @@ Explain an exception only when the source evidence supports it; never invent a r
 examples can justify a refinement, but preserve earlier intent and safety requirements. These rules have the SAME scope;
 do not broaden that scope. Each output rule must cite its input source_ids. Every supplied id must
 occur exactly once across the output rules. Return only the requested JSON. Prefer concise precise
-rules; if compression would lose meaning, retain the original wording."""
+rules; if compression would lose meaning, retain the original wording. Evidence metadata is authoritative: keep tentative inferences tentative. Being in core memory is not extra evidence. Never merge explicit instructions with tentative or unreviewed inferences."""
 
 
 def fingerprint(lesson: Lesson) -> str:
@@ -46,6 +46,21 @@ def latest(s, pid):
     return s.exec(select(MemoryCore).where(MemoryCore.profile_id == pid).order_by(col(MemoryCore.id).desc())).first()
 
 
+def source_snapshot(s, lessons):
+    result = {str(le.id): fingerprint(le) for le in lessons}
+    from .knowledge import describe
+    strengths = {str(le.id): describe(s, le) for le in lessons if s.get(LessonEvidenceState, le.id)}
+    if strengths:
+        result["_evidence"] = hashlib.sha256(json.dumps(strengths, sort_keys=True).encode()).hexdigest()
+    return result
+
+
+def sources_valid(core, current):
+    # Confidence changes schedule a rebuild but do not discard a usable core during
+    # the day. Actual rule edits/revisions still invalidate old wording immediately.
+    return all(current.get(k) == v for k, v in core.sources.items() if k != "_evidence")
+
+
 def select_memory(s, pid, lessons):
     """Return a stable profile prefix plus applicable corrections not covered by it.
 
@@ -56,7 +71,7 @@ def select_memory(s, pid, lessons):
     if not core:
         return "", lessons
     current = {str(le.id): fingerprint(le) for le in active(s, pid)}
-    if not all(current.get(key) == value for key, value in core.sources.items()):
+    if not sources_valid(core, current):
         return "", lessons
     return core.text, [le for le in lessons if str(le.id) not in core.sources]
 
@@ -68,7 +83,7 @@ def apply(messages, core, corrections=""):
     original = messages[0]["content"]
     role = original.removeprefix(FAMILY).strip()
     return [{"role": "system", "content": FAMILY + ("\n\nCORE IDENTITY / KNOWLEDGE / RULES\n" + core if core else "")
-             + "\n\nMEMORY PRIORITY\nPreserve established identity and rules. A single conflicting correction calls for an evidence-based, narrowly scoped exception or an unresolved question; it does not automatically replace a general rule. Explicit user edits remain authoritative."
+             + "\n\nMEMORY PRIORITY\nExplicit rules are authoritative. Core membership does not increase confidence in an inference. Evidence-reviewed revisions supersede earlier inferred wording; preserve established identity and supported intent. A single conflicting correction calls for an evidence-based, narrowly scoped exception or an unresolved question; it does not automatically replace a general rule. Explicit user edits remain authoritative."
              + ("\n\nRECENT CORRECTIONS\n" + corrections if corrections else "") + "\n\nTASK INSTRUCTIONS\n" + role}, *messages[1:]]
 
 
@@ -138,16 +153,22 @@ def compact_profile(rt, pid, budget):
         if not profile:
             return {"profile_id": pid, "status": "skipped"}
         lessons = active(s, pid)
-        snapshot = {str(le.id): fingerprint(le) for le in lessons}
+        snapshot = source_snapshot(s, lessons)
         old = latest(s, pid)
         if not lessons or (old and old.sources == snapshot and old.budget_tokens == budget // 4):
             return {"profile_id": pid, "profile": profile.name, "status": "unchanged", "lessons": len(lessons)}
         names = {c.id: c.name for c in s.exec(select(Category).where(Category.profile_id == pid)).all()}
+        from .knowledge import describe
+        strength = {le.id: describe(s, le) for le in lessons}
         # Preserve the previous core only while its source lessons are still unchanged.
         # Explicit edits/deletions intentionally invalidate it.
-        prior = old if old and all(snapshot.get(k) == v for k, v in old.sources.items()) else None
+        prior = old if old and sources_valid(old, snapshot) else None
         new_lessons = [le for le in lessons if not prior or str(le.id) not in prior.sources]
-        feedback_ids = {fid for le in new_lessons for fid in (le.source_feedback_ids or [])}
+        feedback_ids = {fid for le in lessons for fid in (le.source_feedback_ids or [])}
+        for le in lessons:
+            state = s.get(LessonEvidenceState, le.id)
+            if state:
+                feedback_ids.update(int(fid) for fid in state.assessments)
         evidence = []
         for fid in feedback_ids:
             fb = s.get(Feedback, fid)
@@ -158,10 +179,10 @@ def compact_profile(rt, pid, budget):
                     "rating": fb.rating, "chips": fb.chips, "text": fb.text})
     groups = defaultdict(list)
     for le in lessons:
-        groups[(le.category_id, le.channel_id or "")].append({"text": le.text, "source_ids": [le.id]})
+        groups[(le.category_id, le.channel_id or "", strength[le.id]["kind"])].append({"text": le.text, "source_ids": [le.id], "evidence": strength[le.id]})
     total_chars = max(1, sum(len(le.text) for le in lessons))
-    sections = [f"PROFILE {pid}: {profile.name}\nApply scoped rules only to the named playlist/channel. Protect established rules; interpret a single conflicting correction as a specific exception or unresolved question, not a broad reversal.\n"]
-    for (cid, channel), rules in sorted(groups.items(), key=lambda pair: str(pair[0])):
+    sections = [f"PROFILE {pid}: {profile.name}\nApply scoped rules only to the named playlist/channel. Explicit rules are authoritative. Core membership does not strengthen an inference. Interpret a single conflicting correction as a specific exception or unresolved question; independent evidence reviews can correct overgeneralizations.\n"]
+    for (cid, channel, _kind), rules in sorted(groups.items(), key=lambda pair: str(pair[0])):
         rt.check()
         merged = []
         group_chars = max(1, sum(len(r["text"]) for r in rules))
@@ -177,7 +198,12 @@ def compact_profile(rt, pid, budget):
         scope = f"Playlist {cid}: {names.get(cid, 'deleted playlist')}" if cid else "All playlists"
         if channel:
             scope += f"; ONLY channel {channel}"
-        sections.append(scope + "\n" + "\n".join(f"- {r['text']} [sources {','.join(map(str, r['source_ids']))}]" for r in merged))
+        lines = []
+        for r in merged:
+            labels = "; ".join(f"{i}: {strength[i]['kind']} ({strength[i]['support']} supporting, {strength[i]['opposition']} opposing videos)"
+                               for i in r["source_ids"])
+            lines.append(f"- {r['text']} [sources {','.join(map(str, r['source_ids']))}] [evidence {labels}]")
+        sections.append(scope + "\n" + "\n".join(lines))
     core_text = "\n\n".join(sections)
     if len(core_text) > budget:
         raise ValueError(f"Core exceeds the {budget} character budget; originals retained")
@@ -186,7 +212,7 @@ def compact_profile(rt, pid, budget):
         # Fail closed if it cannot be reviewed safely; new lessons remain available as
         # recent corrections and the previous core stays in service.
         audit_input = {"previous_core": prior.text, "proposed_core": core_text,
-                       "new_lessons": [{"id": le.id, "text": le.text, "category_id": le.category_id,
+                       "source_strength": strength, "new_lessons": [{"id": le.id, "text": le.text, "category_id": le.category_id,
                            "channel_id": le.channel_id, "feedback_ids": le.source_feedback_ids}
                            for le in new_lessons], "feedback": evidence}
         payload = json.dumps(audit_input, ensure_ascii=False)
@@ -210,7 +236,7 @@ def compact_profile(rt, pid, budget):
     rt.check()
     with session() as s:
         s.exec(text("BEGIN IMMEDIATE"))
-        current = {str(le.id): fingerprint(le) for le in active(s, pid)}
+        current = source_snapshot(s, active(s, pid))
         if not s.get(Profile, pid) or any(current.get(k) != v for k, v in snapshot.items()):
             raise ValueError("Source rules changed during consolidation; originals retained")
         s.add(MemoryCore(profile_id=pid, text=core_text, sources=snapshot, budget_tokens=budget // 4))

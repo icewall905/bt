@@ -35,7 +35,7 @@ def _items(s, fbs: list[Feedback]) -> tuple[list[dict], set[str]]:
         if v and v.channel_id:
             channels.add(v.channel_id)
         items.append({
-            "feedback_id": f.id, "rating": f.rating, "chips": f.chips, "text": f.text,
+            "feedback_id": f.id, "video_id": f.video_id, "channel_id": v.channel_id if v else None, "rating": f.rating, "chips": f.chips, "text": f.text,
             "category_id": f.category_id, "category": cat.name if cat else None,
             "video_title": v.title if v else f.video_id,
             "channel": f"{v.channel_name} (id {v.channel_id})" if v and v.channel_id else None,
@@ -99,6 +99,7 @@ def _process_profile(rt: Runtime, pid: int, batch: list[Feedback]) -> int:
         items, channels = _items(s, batch)
     meaningful = [it for it in items if it["rating"] != 0 or it["chips"] or (it["text"] or "").strip()]
     out_lessons: list[dict] = []
+    reviews: list[dict] = []
     if meaningful:
         rt.state("learning", f"Learning from {len(batch)} feedback item(s)", None, profile_id=pid)
         rt.event("learn", f"🧠 Learning from {len(batch)} new feedback item(s) ({prof.name if prof else pid})",
@@ -113,9 +114,24 @@ def _process_profile(rt: Runtime, pid: int, batch: list[Feedback]) -> int:
             rt.llm_failed("learning from feedback", e, profile_id=pid)
             return 0
         out_lessons = [x for x in (out.get("lessons") or []) if isinstance(x, dict)][:3]
+        reviews = [x for x in (out.get("reviews") or []) if isinstance(x, dict)][:8]
+
+    from . import knowledge
+    revised = []
+    for proposal in reviews:
+        rt.check()
+        try:
+            report = knowledge.review(rt, pid, proposal, {item["feedback_id"] for item in meaningful})
+            if report:
+                revised.append(report)
+        except Interrupt:
+            raise
+        except Exception as e:
+            # Keep source rules intact; the feedback remains retryable on the next pass.
+            rt.llm_failed("reviewing rule evidence", e, profile_id=pid)
+            return 0
 
     cat_ids = {c.id for c in cats}
-    fb_ids = [f.id for f in batch]
     learned, trust = [], []
     with session() as s:
         existing = {le.id: le for le in s.exec(select(Lesson).where(Lesson.profile_id == pid)).all()}
@@ -124,23 +140,38 @@ def _process_profile(rt: Runtime, pid: int, batch: list[Feedback]) -> int:
             text = str(x.get("text") or "").strip()[:500]
             if not text:
                 continue
+            # The learner generated its response before the independent revision.
+            # Do not resurrect that response's now-superseded original wording.
+            if any(_norm(text) == _norm(report["before"]) or x.get("replaces_lesson_id") == report["lesson_id"]
+                   for report in revised):
+                continue
             cid = x.get("category_id")
             cid = int(cid) if isinstance(cid, (int, float, str)) and str(cid).isdigit() and int(cid) in cat_ids else None
             ch = x.get("channel_id")
             ch = ch if isinstance(ch, str) and ch in channels else None
+            citations = x.get("source_feedback_ids")
+            # Compatibility with older model/test outputs: only an unambiguous single
+            # meaningful item can be attributed without explicit citations.
+            if citations is None:
+                citations = [meaningful[0]["feedback_id"]] if len(meaningful) == 1 else []
+            valid_ids = {item["feedback_id"] for item in meaningful}
+            if not isinstance(citations, list) or any(type(i) is not int or i not in valid_ids for i in citations):
+                continue
             # Model-proposed replacements are evidence, not authority to erase a rule.
             # Only reinforce an identical lesson in the identical scope. Explicit user
             # edits remain authoritative through the settings API.
             target = norm_existing.get((_norm(text), cid, ch))
             if target is not None:
                 target.updated_at = now()
-                target.source_feedback_ids = sorted(set((target.source_feedback_ids or []) + fb_ids))
+                target.source_feedback_ids = sorted(set((target.source_feedback_ids or []) + citations))
                 target.weight = round(min(3.0, (target.weight or 1.0) + 0.25), 2)
                 s.add(target)
                 learned.append((target, "reinforced"))
             else:
-                le = Lesson(profile_id=pid, category_id=cid, channel_id=ch, text=text, source_feedback_ids=fb_ids)
+                le = Lesson(profile_id=pid, category_id=cid, channel_id=ch, text=text, source_feedback_ids=sorted(set(citations)))
                 s.add(le)
+                s.flush()
+                knowledge.register(s, le)
                 norm_existing[(_norm(text), cid, ch)] = le
                 learned.append((le, "new"))
         trust = _adjust_trust(s, pid, batch)

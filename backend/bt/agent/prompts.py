@@ -42,8 +42,11 @@ How to judge:
   sexual content, gore, swearing or scary content (anything a parent would not want a young child to see).
 - kid_safe = true only if a parent would happily let a ~6-year-old watch it alone. When the category is
   marked kid-safe, any kid-safety concern must lower the score sharply.
-- LESSONS come from this family's own feedback. Obey them strictly; they override your general taste.
-  A video that violates a lesson must score below the threshold.
+- LESSONS come from this family's feedback. Explicit instructions, safety requirements and supported
+  patterns override your general taste; a violation must score below the threshold. Tentative/unreviewed
+  inferences are contextual evidence, not blanket subject/channel bans. Assess the current video's actual
+  qualities; one boring ferret video is not proof that all ferret videos are boring. Core membership adds
+  no confidence. Evidence-reviewed revisions supersede the older wording.
 - RECENT REJECTIONS lists videos this category already turned down, with the reason ("family:" = the
   family's own words). A candidate that repeats a listed failure — same shallow treatment of the topic,
   same red flag — must be rejected too. One that fixes the reason (e.g. the family said "too basic", so
@@ -91,10 +94,15 @@ def category_block(cat) -> str:
 def lessons_block(lessons: list) -> str:
     if not lessons:
         return "LESSONS: (none yet)"
-    out = ["LESSONS (from family feedback — obey strictly):"]
+    out = ["LESSONS (explicit rules are authoritative; inferred preferences retain their evidence strength):"]
+    from ..db import session
+    from .knowledge import describe
+    with session() as s:
+        strength = {le.id: describe(s, le) for le in lessons}
     for le in lessons:
         scope = f" [channel {le.channel_id}]" if le.channel_id else ""
-        out.append(f"- {le.text}{scope}")
+        evidence = strength[le.id]
+        out.append(f"- {le.text}{scope} [{evidence['kind']}; {evidence['support']} supporting, {evidence['opposition']} opposing videos]")
     return "\n".join(out)
 
 
@@ -215,25 +223,36 @@ LEARN_SCHEMA = {
                     "category_id": {"type": ["integer", "null"]},
                     "channel_id": {"type": ["string", "null"]},
                     "replaces_lesson_id": {"type": ["integer", "null"]},
+                    "source_feedback_ids": {"type": "array", "items": {"type": "integer"}},
                 },
-                "required": ["text", "category_id", "channel_id", "replaces_lesson_id"],
+                "required": ["text", "category_id", "channel_id", "replaces_lesson_id", "source_feedback_ids"],
                 "additionalProperties": False,
             },
         },
+        "reviews": {"type": "array", "maxItems": 8, "items": {
+            "type": "object", "properties": {
+                "lesson_id": {"type": "integer"}, "text": {"type": "string"},
+                "feedback_ids": {"type": "array", "items": {"type": "integer"}}},
+            "required": ["lesson_id", "text", "feedback_ids"], "additionalProperties": False}},
     },
-    "required": ["lessons"],
+    "required": ["lessons", "reviews"],
     "additionalProperties": False,
 }
 
 LEARN_SYSTEM = FAMILY + """
 
 You are the LEARNER. Turn the family's new feedback on videos into at most 3 short, reusable LESSONS that will
-guide future video picking (the judge reads them and must obey them).
+guide future video picking according to their evidence strength.
 - A lesson is one imperative sentence, specific and checkable from a transcript/comments/metadata, e.g.
   "Avoid videos where animals are frightened or mocked for laughs" or "Prefer hands-on science builds with a
   clear explanation over pure spectacle". Generalise from the specific video to the underlying preference.
 - Only create a lesson when the feedback reveals a real preference. Plain likes with no comment usually need
-  no lesson (return an empty list is fine). Dislikes with a reason almost always deserve one.
+  no new lesson (an empty list is fine), but MUST review an existing inferred preference that those likes
+  support or contradict. Dislikes with a reason almost always deserve a scoped lesson.
+- One disliked/boring video establishes at most a tentative, video-specific inference. Do not infer a
+  categorical subject dislike, channel ban or broad identity trait from that single example.
+- source_feedback_ids: cite ONLY the supplied feedback items that actually support THIS new lesson.
+  Never attach an entire mixed batch. Do not invent IDs.
 - A rating of 1 with the exact chip "Approved rejection" is a deliberate correction: the family wants the
   AI-rejected video added anyway, so that rejection was too strict or mismatched their taste. Treat it as
   disagreement with the rejection, never as an ordinary like. Use the supplied original AI score, summary,
@@ -245,8 +264,18 @@ guide future video picking (the judge reads them and must obey them).
   video's details and record a narrowly justified exception, not to reverse a general rule. If the reason is
   unclear, record the specific unresolved correction without inventing one. Repeated independent examples
   may support refining a rule, but do not discard its original intent or safety requirements.
-- If an existing lesson already covers the feedback, skip it or repeat its exact wording and scope to
-  reinforce it. Never rewrite or replace an existing lesson; set replaces_lesson_id to null.
+- Existing rules, including those inside CORE, can be reviewed using reviews. Reference their numeric
+  lesson_id (the CORE's [sources ...] identify source lesson IDs). Include feedback_ids from NEW FEEDBACK
+  relevant to that rule, whether supporting or opposing. Supply text with the safest justified refinement,
+  or repeat the rule if no revision is justified. The independent evidence gate decides if it can change.
+- Weak inferred generalizations can be corrected quickly: two positive ferret videos may defeat a rule
+  inferred from one boring ferret video. Preserve that earlier video's dislike without inventing its cause.
+  A whole-video like does not endorse every depicted practice, such as keeping lions as pets. Repeated
+  ethically specific rejections carry much more weight than one positive reaction to a related video.
+- Never create a competing blanket rule to bypass review. If new feedback contradicts an existing rule,
+  request review and, if necessary, record only a narrow evidence-supported exception/unresolved correction.
+- If an existing lesson already covers the feedback, repeat its exact wording and scope to reinforce it
+  with source_feedback_ids. Never overwrite it directly; set replaces_lesson_id to null.
 - category_id: the category the lesson applies to, or null if it applies to all of this person's categories.
 - channel_id: set ONLY when the lesson is about one specific channel (use the id shown), otherwise null.
 Output ONLY the JSON object."""
@@ -254,7 +283,11 @@ Output ONLY the JSON object."""
 
 def learn_messages(profile_name: str, categories: list, lessons: list, items: list[dict], core: str = "") -> list[dict]:
     cats = "\n".join(f"- id {c.id}: {c.name} — {_clip(c.brief, 200)}" for c in categories) or "(none)"
-    existing = "\n".join(f"- id {le.id} (category {le.category_id}, channel {le.channel_id}): {le.text}"
+    from ..db import session
+    from .knowledge import describe
+    with session() as s:
+        strengths = {le.id: describe(s, le) for le in lessons}
+    existing = "\n".join(f"- id {le.id} (category {le.category_id}, channel {le.channel_id}; {strengths[le.id]}): {le.text}"
                          for le in lessons) or "(none)"
     fb = json.dumps(items, ensure_ascii=False, indent=1, default=str)
     user = (f"PROFILE: {profile_name}\n\nCATEGORIES:\n{cats}\n\n"

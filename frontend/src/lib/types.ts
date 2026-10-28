@@ -166,6 +166,7 @@ export interface Feedback {
 }
 
 export interface Lesson {
+	evidence?: { kind: string; support: number; opposition: number };
 	id: number;
 	profile_id: number;
 	category_id: number | null;
