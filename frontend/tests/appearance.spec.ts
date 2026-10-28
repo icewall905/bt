@@ -11,11 +11,11 @@ test('all themes apply immediately, persist, and retain readable text and button
 		await expect(cards.first()).toHaveAttribute('aria-pressed', 'true');
 		const original = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bg-0').trim());
 		expect(original.toLowerCase()).toBe('#0a0817');
-		for (const name of ['Nord', 'Everforest', 'Gruvbox', 'Tokyo Night', 'One Dark', 'Rosé Pine', 'Catppuccin Mocha', 'Solarized', 'Dracula', 'Kanagawa']) {
+		for (const name of ['Abyss', 'Moss', 'Ember', 'Midnight', 'Graphite', 'Velvet', 'Aurora', 'Copper', 'Noir', 'Lagoon']) {
 			const card = page.getByRole('button', { name: new RegExp(`^${name}`) });
 			await card.click();
 			await expect(card).toHaveAttribute('aria-pressed', 'true');
-			if (name === 'Nord' || name === 'Dracula') await page.screenshot({ path: `/tmp/bt-theme-${name === 'Dracula' ? 'noir' : 'ocean'}.png`, fullPage: true });
+			if (name === 'Abyss' || name === 'Noir') await page.screenshot({ path: `/tmp/bt-theme-${name === 'Noir' ? 'noir' : 'ocean'}.png`, fullPage: true });
 			const colors = await page.evaluate(() => {
 				const css = getComputedStyle(document.documentElement);
 				return ['--bg-1', '--text', '--accent', '--accent-ink'].map(k => css.getPropertyValue(k).trim());
@@ -33,7 +33,7 @@ test('all themes apply immediately, persist, and retain readable text and button
 			expect(contrast(colors[2], colors[3]), `${name} primary button contrast`).toBeGreaterThanOrEqual(4.5);
 		}
 		await page.reload();
-		await expect(page.getByRole('button', { name: /^Kanagawa/ })).toHaveAttribute('aria-pressed', 'true');
+		await expect(page.getByRole('button', { name: /^Lagoon/ })).toHaveAttribute('aria-pressed', 'true');
 		await expect(page.locator('html')).toHaveAttribute('data-theme', 'lagoon');
 		await page.goto('/stats');
 		await expect(page.locator('html')).toHaveAttribute('data-theme', 'lagoon');
