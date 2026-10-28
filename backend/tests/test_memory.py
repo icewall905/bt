@@ -181,3 +181,45 @@ def test_revision_audit_rejects_unsafe_change_and_retains_old_core():
         core, corrections = memory.select_memory(s, pid, memory.active(s, pid))
         assert core == old_text and len(corrections) == 1
     assert "memory_continuity_audit" in calls
+
+
+def test_context_percentiles_cache_denominator_hourly_bins_and_profile_memory(monkeypatch):
+    import bt.llm_metrics as metrics
+    from datetime import timedelta
+    instant = datetime(2026, 10, 28, 12, 30, tzinfo=timezone.utc)
+    monkeypatch.setattr(metrics, "now", lambda: instant)
+    with session() as s:
+        pid = s.exec(select(Profile)).first().id
+        rule = Lesson(profile_id=pid, text="Keep explicit rules")
+        s.add(rule); s.flush()
+        s.add(MemoryCore(profile_id=pid, text="Keep explicit rules", sources={str(rule.id): memory.fingerprint(rule)}))
+        for task, tokens, estimate, cached, hours, ok in [
+            ("verdict", 100, False, 50, 1, True),
+            ("verdict", 4000, True, 100, 2, True),
+            ("lesson_evidence", 65000, False, 100000, 3, True),
+            ("verdict", 999999, False, 0, 1, False),
+            ("verdict", 999999, False, 0, 25, True)]:
+            s.add(LlmRequest(task=task, model="model", input_tokens=tokens, estimated=estimate,
+                             cached_tokens=cached, ok=ok, created_at=instant - timedelta(hours=hours)))
+        s.commit()
+        stats = metrics.overview(s)
+        assert stats["requests"] == 3 and stats["failed"] == 1
+        assert stats["median_input_tokens"] == 4000 and stats["p95_input_tokens"] == 65000
+        assert stats["total_input_tokens"] == 69100 and stats["max_input_tokens"] == 65000
+        # Estimated input is not a valid denominator for a server-reported cache hit rate.
+        assert stats["cache_hit_percent"] == round(65050 / 65100 * 100, 1)
+        assert sum(h["requests"] for h in stats["hourly"]) == 3
+        assert sum(b["requests"] for b in stats["distribution"]) == 3
+        assert {b["label"]: b["requests"] for b in stats["distribution"]}["4k–8k"] == 1
+        assert stats["memory_profiles"][0]["core_valid"]
+        assert stats["rule_strengths"]["explicit"] == 1
+        assert stats["revisions_24h"] == 0
+
+
+def test_core_metric_stops_before_priority_and_task_even_without_corrections():
+    body = {"model": "test", "messages": [{"role": "system", "content":
+        "CORE IDENTITY / KNOWLEDGE / RULES\ncore\n\nMEMORY PRIORITY\npriority\n\nTASK INSTRUCTIONS\njudge"}]}
+    record(body, "verdict", httpx.Response(200, json={"usage": {"prompt_tokens": 123}}))
+    with session() as s:
+        request = s.exec(select(LlmRequest)).one()
+        assert request.core_chars == 4 and request.correction_chars == 0

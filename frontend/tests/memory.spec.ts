@@ -58,4 +58,13 @@ assert process(rt)
 	await page.screenshot({ path: '/tmp/bt-memory-settings.png', fullPage: true });
 	await page.goto('/stats');
 	await expect(page.getByRole('heading', { name: /AI context per request/ })).toBeVisible();
+	const panel = page.locator('section.panel').filter({ has: page.getByRole('heading', { name: /AI context per request/ }) });
+	await expect(panel.getByRole('heading', { name: 'Context size over time', exact: true })).toBeVisible();
+	await expect(panel.getByRole('heading', { name: 'Request size distribution', exact: true })).toBeVisible();
+	await expect(panel.getByRole('heading', { name: 'Current core memory by profile', exact: true })).toBeVisible();
+	await expect(panel.getByText('Median input tokens', { exact: true })).toBeVisible();
+	await expect(panel.locator('.profile-context')).toContainText('Family');
+	await panel.screenshot({ path: '/tmp/bt-context-stats.png' });
+	await page.setViewportSize({ width: 390, height: 844 });
+	await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

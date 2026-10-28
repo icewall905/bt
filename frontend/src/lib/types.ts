@@ -490,11 +490,22 @@ export interface StatsPageData {
 	daily: StatsDay[];
 }
 
-export interface LlmContextStats {
-	requests: number; failed: number; average_input_tokens: number; max_input_tokens: number;
-	estimated_requests: number; cached_tokens: number; average_core_chars: number;
-	average_correction_chars: number; window_hours: number;
-	by_task: { task: string; requests: number; average_input_tokens: number }[];
+export interface ContextSummary {
+	requests: number; total_input_tokens: number; average_input_tokens: number;
+	median_input_tokens: number; p95_input_tokens: number; max_input_tokens: number;
+	cache_hit_percent: number | null;
+}
+export interface LlmContextStats extends ContextSummary {
+	failed: number; estimated_requests: number; measured_requests: number; cached_tokens: number;
+	average_core_chars: number; average_correction_chars: number; average_other_chars: number; window_hours: number;
+	by_task: (ContextSummary & { task: string })[];
+	by_model: (ContextSummary & { model: string })[];
+	hourly: (ContextSummary & { hour: string })[];
+	distribution: { label: string; requests: number }[];
+	memory_profiles: { profile_id: number; profile: string; core_valid: boolean; core_tokens_estimate: number;
+		stored_core_tokens_estimate: number; core_budget_tokens: number | null; raw_rule_tokens_estimate: number;
+		correction_tokens_estimate: number; active_rules: number; corrections: number }[];
+	rule_strengths: Record<string, number>; revisions_24h: number; configured_core_budget_tokens: number;
 }
 
 export interface MemoryStatus {

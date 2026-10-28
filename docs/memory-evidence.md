@@ -57,3 +57,18 @@ scopes/profiles, evidence deletion, semantic-audit rejection and concurrent edit
 backend/tests/test_knowledge_live.py -q -s` checks the real configured LLM against
 synthetic feedback in an isolated database. It runs the full daily learner path,
 including a rule already represented by core memory. It is skipped by default.
+
+## Context statistics
+
+Stats exposes last-24-hour input totals, mean, median, nearest-rank P95, maximum,
+hourly trends, size buckets and task/model breakdowns. Failed attempts are counted
+but excluded from context averages. Cache share uses successful server-measured
+input totals, never estimated tokens, and clamps cached tokens to the corresponding
+input count. A server omitting cache details contributes no reported cache hits.
+
+Per-profile tables show active core size and budget, raw rule text, corrections
+outside the core and whether an old core needs rebuilding. Rule-strength totals
+and the number of automatic revisions are also visible. Core/correction text
+contributions are labelled estimates; input tokens include image cost only when
+the server reports it. Metrics store sizes and task/model identifiers, never
+prompts, transcripts, credentials or image payloads. Retention remains 30 days.

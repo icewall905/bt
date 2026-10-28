@@ -183,7 +183,7 @@
 			</section>
 		{/if}
 		{#if data?.context}
-			<section class="panel stack"><h2>AI context per request <span class="faint small">last 24 hours</span></h2><ContextOverview context={data.context} /><a class="text-link small" href="/settings?tab=memory" use:focusable={{ group: 'stats-memory' }}>View core memory and consolidation settings</a></section>
+			<section class="panel stack"><h2>AI context per request <span class="faint small">last 24 hours</span></h2><ContextOverview context={data.context} detailed /><a class="text-link small" href="/settings?tab=memory" use:focusable={{ group: 'stats-memory' }}>View core memory and consolidation settings</a></section>
 		{/if}
 
 		<section class="panel">
