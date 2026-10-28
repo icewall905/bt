@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import logging
+from time import monotonic
 from typing import Optional
 
 import httpx
@@ -92,6 +93,7 @@ def pending(limit: int = 20) -> list[Candidate]:
 
 def judge_one(rt: Runtime, cand: Candidate) -> Optional[str]:
     """Returns 'accepted' / 'rejected', or None if the LLM failed (candidate stays enriched)."""
+    started = monotonic()
     st = rt.settings()
     with session() as s:
         cat = s.get(Category, cand.category_id)
@@ -135,6 +137,7 @@ def judge_one(rt: Runtime, cand: Candidate) -> Optional[str]:
         except Exception as e2:  # noqa: BLE001
             rt.llm_failed(f"judging {v.title}", e2, category=cat, video_id=v.id)
             return None
+    log.info("judge %s completed in %.2fs", v.id, monotonic() - started)
     verdict = normalize(out)
     ok, why = decide(cat, verdict)
     with session() as s:

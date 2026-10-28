@@ -1,14 +1,16 @@
-"""Main worker loop: learn → judge → enrich (1 video) → discover (if backlog small) → idle."""
+"""Overlap learning/judging with one video research; then discover if needed."""
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from time import monotonic
 import traceback
 from typing import Optional
 
 from sqlmodel import col, select
 
 from ..db import session
-from ..models import Candidate
+from ..models import Candidate, Video
 from . import data, enrich, judge, learn, memory, planner
 from .ratelimit import RateLimiter
 from ..models import now
@@ -39,21 +41,14 @@ class Worker:
             rt.event("control", "▶️ Resumed", "info")
         did = False
 
-        # (1) learn — LLM only, highest priority
-        if rt.llm_ok() and learn.process(rt):
-            did = True
-        if rt.llm_ok() and not learn.pending_count() and memory.process(rt):
-            did = True
-
-        # (2) judge everything already enriched
-        for cand in judge.pending():
-            rt.check()
-            if not rt.llm_ok():
-                break
-            if judge.judge_one(rt, cand):
-                did = True
-            if learn.pending_count() and rt.llm_ok():  # feedback arrived meanwhile → learn first
-                learn.process(rt)
+        # Research and AI have independent resources; keep one task per lane.
+        # Join before discovery so planning sees all newly accepted picks.
+        started = monotonic()
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="curator-ai") as pool:
+            ai = pool.submit(self._ai_work)
+            did = self._research_one()
+            did = ai.result() or did
+        log.info("curator research/judge pass finished in %.2fs", monotonic() - started)
 
         # (3)+(4) YouTube work
         rt.check()
@@ -66,11 +61,6 @@ class Worker:
         yt = rt.yt
         cat = None
         try:
-            cand = self._next_found(needs)
-            if cand is not None:
-                cat = next(n.cat for n in needs if n.cat.id == cand.category_id)
-                enrich.enrich_one(rt, self.rl, cand, cat)
-                did = True
             rt.check()
             with session() as s:
                 needs = data.category_needs(s, rt.focus_category_id)
@@ -93,15 +83,62 @@ class Worker:
             raise
         return did
 
+    def _ai_work(self) -> bool:
+        rt = self.rt
+        did = False
+        # (1) learn — LLM only, highest priority
+        if rt.llm_ok() and learn.process(rt):
+            did = True
+
+        if rt.llm_ok() and not learn.pending_count() and memory.process(rt):
+            did = True
+
+        # (2) judge everything already enriched
+        for cand in judge.pending():
+            rt.check()
+            if not rt.llm_ok():
+                break
+            if judge.judge_one(rt, cand):
+                did = True
+            if learn.pending_count() and rt.llm_ok():  # feedback arrived meanwhile → learn first
+                learn.process(rt)
+
+        return did
+
+    def _research_one(self) -> bool:
+        rt = self.rt
+        rt.check()
+        with session() as s:
+            needs = data.category_needs(s, rt.focus_category_id)
+        # Let AI finish before the bounded blocker wait in iterate().
+        if self.rl.blocker():
+            return False
+        cand = self._next_found(needs)
+        if cand is None:
+            return False
+        cat = next(n.cat for n in needs if n.cat.id == cand.category_id)
+        try:
+            enrich.enrich_one(rt, self.rl, cand, cat)
+        except rt.yt.YtBlocked as e:
+            self.rl.blocked(e, cat)
+        return True
+
     @staticmethod
     def _next_found(needs: list[data.Need]) -> Optional[Candidate]:
         with session() as s:
             for need in needs:
-                c = s.exec(select(Candidate).where(Candidate.category_id == need.cat.id, Candidate.status == "found",
-                                                   Candidate.dismissed == False)  # noqa: E712
-                           .order_by(col(Candidate.created_at)).limit(1)).first()
-                if c:
-                    return c
+                rows = s.exec(select(Candidate).where(Candidate.category_id == need.cat.id,
+                                                       Candidate.status == "found",
+                                                       Candidate.dismissed == False)  # noqa: E712
+                              .order_by(col(Candidate.created_at), Candidate.id)).all()
+                if rows:
+                    # Cached research first, then positive channel feedback.
+                    # Every pick still receives the complete quality judgment.
+                    def priority(c):
+                        v = s.get(Video, c.video_id)
+                        trust = data.trust_for(s, need.cat.profile_id, v.channel_id) if v and v.channel_id else 0
+                        return (bool(v and v.enriched_at), max(0, trust or 0))
+                    return max(rows, key=priority)  # stable: FIFO for ties
         return None
 
     # ------------------------------------------------------------------ forever
