@@ -9,11 +9,19 @@
 		size?: 'sm' | 'md' | 'lg' | 'full' | 'drawer';
 		children: Snippet;
 		footer?: Snippet;
+		portal?: boolean;
 	}
-	let { title, subtitle, onClose, size = 'md', children, footer }: Props = $props();
+	let { title, subtitle, onClose, size = 'md', children, footer, portal = false }: Props = $props();
+
+	// A transformed or blurred ancestor traps fixed-position overlays. Move
+	// selected dialogs to the document root so their backdrop covers the screen.
+	function moveToRoot(node: HTMLElement, enabled: boolean) {
+		if (enabled) document.body.appendChild(node);
+		return { destroy: () => { if (enabled) node.remove(); } };
+	}
 </script>
 
-<div class="backdrop {size}" role="presentation" onclick={(e) => e.target === e.currentTarget && onClose()}>
+<div class="backdrop {size}" role="presentation" use:moveToRoot={portal} onclick={(e) => e.target === e.currentTarget && onClose()}>
 	<div class="modal {size}" role="dialog" aria-modal="true" aria-label={title} use:navScope={{ onBack: onClose }}>
 		{#if title}
 			<header>

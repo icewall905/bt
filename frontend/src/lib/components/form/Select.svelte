@@ -32,7 +32,7 @@
 </button>
 
 {#if open}
-	<Modal title={label} size="sm" onClose={() => (open = false)}>
+	<Modal title={label} size="sm" portal onClose={() => (open = false)}>
 		<div class="opts" role="listbox">
 			{#each options as o}
 				<button
