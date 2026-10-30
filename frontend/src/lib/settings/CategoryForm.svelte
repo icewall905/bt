@@ -37,6 +37,25 @@
 	// svelte-ignore state_referenced_locally
 	let f = $state<CategoryInput>({ ...DEFAULTS, ...(preset ?? {}), ...(category ? pick(category) : {}) });
 	let busy = $state(false);
+	let autofilling = $state<string | null>(null);
+	type AutofillField = 'seed_queries' | 'seed_channels' | 'include_keywords' | 'exclude_keywords';
+
+	async function autofill(field: AutofillField) {
+		if (autofilling) return;
+		if (!f.brief.trim()) return toast.warn('Write a brief for the AI first.');
+		autofilling = field;
+		try {
+			const result = await api.autofillCategory(f.brief, field);
+			const existing = new Set(f[field].map((value) => value.toLowerCase()));
+			const additions = result.values.filter((value) => { const key = value.toLowerCase(); if (existing.has(key)) return false; existing.add(key); return true; });
+			f[field] = [...f[field], ...additions];
+			if (!result.values.length) toast.warn('The AI found no suggestions for this field.');
+		} catch {
+			// The API client displays the error.
+		} finally {
+			autofilling = null;
+		}
+	}
 	let playlistUrl = $state('');
 	let confirmDel = $state(false);
 	let minMin = $state(Math.round(f.min_duration_s / 60));
@@ -99,10 +118,22 @@ Simple, fun science for kids 5–9: Mark Rober, cat videos, experiments, space, 
 	<TextField multiline rows={7} label="Brief for the AI" hint={playlistUrl.trim() && !category ? "Optional extra preferences to add to the generated prompt." : "The most important field. Say what you want, what to avoid, and who is watching."} bind:value={f.brief} placeholder={BRIEF_PLACEHOLDER} id="cat-brief" />
 
 	<div class="two">
-		<ChipInput label="Seed searches" hint="Starting points for the AI's YouTube searches. It will invent more." bind:values={f.seed_queries} placeholder="egg drop experiment" />
-		<ChipInput label="Seed channels" hint="@handles, channel IDs or URLs the AI should mine." bind:values={f.seed_channels} placeholder="@MarkRober" />
-		<ChipInput label="Must mention" hint="Optional words that should appear (title, description or tags)." bind:values={f.include_keywords} placeholder="experiment" />
-		<ChipInput label="Never show" hint="Videos with these words in the title are skipped without asking the AI." bind:values={f.exclude_keywords} placeholder="prank" />
+		<div class="autofill-field">
+			<ChipInput label="Seed searches" hint="Starting points for the AI's YouTube searches. It will invent more." bind:values={f.seed_queries} placeholder="egg drop experiment" />
+			<button class="btn autofill" disabled={!!autofilling} use:focusable={{ group: 'cat-autofill', onSelect: () => autofill('seed_queries') }} aria-label="Autofill Seed searches with AI">{autofilling === 'seed_queries' ? 'Generating…' : '✨ Autofill with AI'}</button>
+		</div>
+		<div class="autofill-field">
+			<ChipInput label="Seed channels" hint="@handles, channel IDs or URLs the AI should mine." bind:values={f.seed_channels} placeholder="@MarkRober" />
+			<button class="btn autofill" disabled={!!autofilling} use:focusable={{ group: 'cat-autofill', onSelect: () => autofill('seed_channels') }} aria-label="Autofill Seed channels with AI">{autofilling === 'seed_channels' ? 'Generating…' : '✨ Autofill with AI'}</button>
+		</div>
+		<div class="autofill-field">
+			<ChipInput label="Must mention" hint="Optional words that should appear (title, description or tags)." bind:values={f.include_keywords} placeholder="experiment" />
+			<button class="btn autofill" disabled={!!autofilling} use:focusable={{ group: 'cat-autofill', onSelect: () => autofill('include_keywords') }} aria-label="Autofill Must mention with AI">{autofilling === 'include_keywords' ? 'Generating…' : '✨ Autofill with AI'}</button>
+		</div>
+		<div class="autofill-field">
+			<ChipInput label="Never show" hint="Videos with these words in the title are skipped without asking the AI." bind:values={f.exclude_keywords} placeholder="prank" />
+			<button class="btn autofill" disabled={!!autofilling} use:focusable={{ group: 'cat-autofill', onSelect: () => autofill('exclude_keywords') }} aria-label="Autofill Never show with AI">{autofilling === 'exclude_keywords' ? 'Generating…' : '✨ Autofill with AI'}</button>
+		</div>
 	</div>
 
 	<div class="one">
@@ -163,6 +194,8 @@ Simple, fun science for kids 5–9: Mark Rober, cat videos, experiments, space, 
 		grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
 		gap: 0.9rem;
 	}
+	.autofill-field { display: grid; gap: 0.4rem; align-content: start; }
+	.autofill { justify-self: start; }
 	/* Steppers use Left/Right for their value: one column keeps every control reachable with Up/Down. */
 	.one {
 		display: grid;
